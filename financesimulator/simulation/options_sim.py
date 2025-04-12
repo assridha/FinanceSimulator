@@ -7,7 +7,7 @@ import logging
 import os
 import time
 
-from ..data.fetcher import MarketDataFetcher
+from ..data.fetcher import MarketDataFetcher, _GLOBAL_RISK_FREE_RATE
 from ..models.base import BaseModel, ModelFactory
 from ..options.black_scholes import BlackScholes
 from ..options.strategy import OptionsStrategy, Action, InstrumentType
@@ -261,7 +261,18 @@ class OptionsSimulation:
             self.drift = drift
             
         if risk_free_rate is None:
-            self.risk_free_rate = self.data_fetcher.get_risk_free_rate()
+            # Check global risk-free rate cache first to avoid redundant API calls
+            rfr_start = time.time()
+            if (_GLOBAL_RISK_FREE_RATE['rate'] is not None and 
+                time.time() - _GLOBAL_RISK_FREE_RATE['timestamp'] < _GLOBAL_RISK_FREE_RATE['max_age']):
+                logging.info(f"Using globally cached risk-free rate: {_GLOBAL_RISK_FREE_RATE['rate']:.4f}")
+                self.risk_free_rate = _GLOBAL_RISK_FREE_RATE['rate']
+            else:
+                logging.info("Fetching risk-free rate using data fetcher")
+                self.risk_free_rate = self.data_fetcher.get_risk_free_rate()
+            
+            rfr_elapsed = time.time() - rfr_start
+            logging.info(f"Risk-free rate initialization took {rfr_elapsed:.4f} seconds")
         else:
             self.risk_free_rate = risk_free_rate
             

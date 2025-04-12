@@ -9,6 +9,13 @@ import pickle
 import time
 from typing import Dict, Optional, Union, Tuple, List, Any
 
+# Global risk-free rate cache for quick access across instances
+_GLOBAL_RISK_FREE_RATE = {
+    'rate': None,
+    'timestamp': 0,
+    'max_age': 3600  # 1 hour default
+}
+
 class MarketDataFetcher:
     """Class for fetching market data from various sources."""
     
@@ -289,9 +296,21 @@ class MarketDataFetcher:
         Returns:
             Current risk-free rate as a decimal (e.g., 0.03 for 3%)
         """
+        overall_start_time = time.time()
+        print(f"[PERF] Starting risk-free rate fetch at {time.strftime('%H:%M:%S', time.localtime())}")
+        
         # Use instance max_cache_age if not specified
         if max_cache_age is None:
             max_cache_age = self.cache_max_age
+            
+        # Check global memory cache first (fastest access)
+        global _GLOBAL_RISK_FREE_RATE
+        if (_GLOBAL_RISK_FREE_RATE['rate'] is not None and 
+            time.time() - _GLOBAL_RISK_FREE_RATE['timestamp'] < _GLOBAL_RISK_FREE_RATE['max_age']):
+            rate = _GLOBAL_RISK_FREE_RATE['rate']
+            print(f"Using global cached risk-free rate: {rate:.4f}")
+            print(f"[PERF] Global cache access took {time.time() - overall_start_time:.6f} seconds")
+            return rate
             
         cache_key = "risk_free_rate"
         
@@ -299,49 +318,94 @@ class MarketDataFetcher:
         if not self.cache_enabled or self.force_refresh:
             # Skip cache unless in offline mode
             if not self.offline_mode:
+                fetch_start = time.time()
                 print(f"Fetching fresh risk-free rate (caching {'disabled' if not self.cache_enabled else 'bypassed'})...")
                 try:
                     # Get most recent day's data for the 10-year Treasury yield
-                    data = self.get_stock_data("^TNX", period="5d", interval="1d")
-                    
+                    try:
+                        data_fetch_start = time.time()
+                        data = self.get_stock_data("^TNX", period="5d", interval="1d")
+                        print(f"[PERF] Treasury data fetch took {time.time() - data_fetch_start:.2f} seconds")
+                    except Exception as e:
+                        print(f"[ERROR] Treasury data fetch failed: {e}")
+                        raise
+
                     if not data.empty:
                         # Get the most recent closing value and convert from percentage to decimal
                         rate = data['Close'].iloc[-1] / 100.0
                         
-                        # Store in memory cache
+                        # Store in global, memory and file caches
+                        _GLOBAL_RISK_FREE_RATE['rate'] = rate
+                        _GLOBAL_RISK_FREE_RATE['timestamp'] = time.time()
+                        _GLOBAL_RISK_FREE_RATE['max_age'] = max_cache_age
+                        
                         self.cache[cache_key] = rate
                         
                         # If caching is enabled, store in file cache
                         if self.cache_enabled:
+                            cache_start = time.time()
                             self._save_to_file_cache(cache_key, (rate, time.time()))
+                            print(f"[PERF] File cache write took {time.time() - cache_start:.2f} seconds")
                         
+                        print(f"[PERF] Total fresh fetch took {time.time() - fetch_start:.2f} seconds")
                         return rate
                 except Exception as e:
                     print(f"Error getting treasury yield data: {e}")
                     # Fall back to default value
-                    return 0.035  # 3.5% as fallback
+                    default_rate = 0.035  # 3.5% as fallback
+                    _GLOBAL_RISK_FREE_RATE['rate'] = default_rate
+                    _GLOBAL_RISK_FREE_RATE['timestamp'] = time.time()
+                    return default_rate
         
         # Check memory cache
         if cache_key in self.cache:
-            print("Using cached risk-free rate (memory cache)")
-            return self.cache[cache_key]
+            rate = self.cache[cache_key]
+            print(f"Using cached risk-free rate (memory cache): {rate:.4f}")
+            elapsed = time.time() - overall_start_time
+            print(f"[PERF] Memory cache access took {elapsed:.4f} seconds")
+            
+            # Update global cache too
+            _GLOBAL_RISK_FREE_RATE['rate'] = rate
+            _GLOBAL_RISK_FREE_RATE['timestamp'] = time.time()
+            _GLOBAL_RISK_FREE_RATE['max_age'] = max_cache_age
+            
+            return rate
         
-        # Check file cache
+        # Check file cache 
+        file_cache_start = time.time()
         file_cache = self._load_from_file_cache(cache_key)
+        file_cache_time = time.time() - file_cache_start
+        print(f"[PERF] File cache check took {file_cache_time:.4f} seconds")
+        
         if file_cache is not None:
             rate, cache_timestamp = file_cache
             # Check if cache is still valid
             if time.time() - cache_timestamp < max_cache_age or self.offline_mode:
-                self.cache[cache_key] = rate  # Store in memory cache
-                print(f"Using cached risk-free rate (file cache, age: {(time.time() - cache_timestamp)/3600:.1f} hours)")
+                # Store in memory and global cache
+                self.cache[cache_key] = rate
+                _GLOBAL_RISK_FREE_RATE['rate'] = rate
+                _GLOBAL_RISK_FREE_RATE['timestamp'] = time.time()
+                _GLOBAL_RISK_FREE_RATE['max_age'] = max_cache_age
+                
+                cache_age_hours = (time.time() - cache_timestamp) / 3600
+                print(f"Using cached risk-free rate (file cache, age: {cache_age_hours:.1f} hours): {rate:.4f}")
+                elapsed = time.time() - overall_start_time
+                print(f"[PERF] Total cached rate fetch took {elapsed:.4f} seconds")
                 return rate
         
         # FAST APPROACH: Get the risk-free rate from historical data instead of info
         treasury_ticker = "^TNX"
         try:
+            hist_start = time.time()
             print("Getting risk-free rate using historical data...")
             # Get the most recent day's data for the 10-year Treasury yield
-            data = self.get_stock_data(treasury_ticker, period="5d", interval="1d")
+            try:
+                data = self.get_stock_data(treasury_ticker, period="5d", interval="1d")
+                hist_time = time.time() - hist_start
+                print(f"[PERF] Historical data fetch took {hist_time:.2f} seconds")
+            except Exception as e:
+                print(f"[ERROR] Historical data fetch failed: {e}")
+                raise
             
             if not data.empty:
                 # Get the most recent closing value and convert from percentage to decimal
@@ -350,8 +414,12 @@ class MarketDataFetcher:
                 # Store in both memory and file cache if caching is enabled
                 self.cache[cache_key] = rate
                 if self.cache_enabled:
+                    cache_write_start = time.time()
                     self._save_to_file_cache(cache_key, (rate, time.time()))
+                    print(f"[PERF] File cache write took {time.time() - cache_write_start:.4f} seconds")
                 
+                elapsed = time.time() - overall_start_time
+                print(f"[PERF] Total risk-free rate fetch took {elapsed:.2f} seconds")
                 return rate
         except Exception as e:
             print(f"Error getting treasury yield data: {e}")
@@ -361,10 +429,13 @@ class MarketDataFetcher:
         
         # Only try the slow method if not in offline mode and the fast method failed
         if not self.offline_mode:
+            slow_start = time.time()
             print("Falling back to slower API method for risk-free rate...")
             try:
                 treasury = yf.Ticker(treasury_ticker)
+                api_start = time.time()
                 rate = treasury.info.get('regularMarketPrice')
+                print(f"[PERF] Treasury API call took {time.time() - api_start:.2f} seconds")
                 
                 if rate is not None:
                     # Convert percentage to decimal
@@ -375,8 +446,10 @@ class MarketDataFetcher:
                     if self.cache_enabled:
                         self._save_to_file_cache(cache_key, (rate, time.time()))
                     
+                    print(f"[PERF] Slow method took {time.time() - slow_start:.2f} seconds")
                     return rate
-            except Exception:
+            except Exception as e:
+                print(f"[ERROR] Slow API method failed: {e}")
                 # Fall back to default if there's an error
                 pass
         
@@ -386,6 +459,8 @@ class MarketDataFetcher:
         if self.cache_enabled:
             self._save_to_file_cache(cache_key, (default_rate, time.time()))
         
+        elapsed = time.time() - overall_start_time
+        print(f"[PERF] Total risk-free rate fetch (using default) took {elapsed:.2f} seconds")
         return default_rate
     
     def get_option_chain(
