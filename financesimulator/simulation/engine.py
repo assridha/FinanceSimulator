@@ -13,22 +13,22 @@ from financesimulator.models.base import ModelFactory
 class SimulationEngine:
     """Core engine for running financial simulations."""
     
-    def __init__(self, config_path: Optional[str] = None, config_dict: Optional[Dict] = None):
+    def __init__(self, config_path: Optional[str] = None, config_dict: Optional[Dict] = None, 
+                 offline_mode: bool = False, prefetch: bool = True):
         """
         Initialize the simulation engine.
         
         Args:
             config_path: Path to configuration YAML file
             config_dict: Configuration dictionary (alternative to config_path)
+            offline_mode: Whether to run in offline mode (no API calls)
+            prefetch: Whether to prefetch common data in background
         
         Raises:
             ValueError: If neither config_path nor config_dict is provided
         """
         if config_path is None and config_dict is None:
             raise ValueError("Either config_path or config_dict must be provided")
-        
-        # Initialize components
-        self.data_fetcher = MarketDataFetcher()
         
         # Load configuration
         if config_path is not None:
@@ -38,6 +38,22 @@ class SimulationEngine:
         
         # Validate configuration
         self._validate_config()
+        
+        # Get cache settings from config
+        cache_settings = self._get_cache_settings()
+        cache_enabled = cache_settings.get('enabled', True)
+        cache_max_age = cache_settings.get('max_age', 86400)
+        force_refresh = cache_settings.get('force_refresh', False)
+        
+        # Initialize components with cache settings
+        self.data_fetcher = MarketDataFetcher(
+            offline_mode=offline_mode, 
+            prefetch=prefetch,
+            cache_enabled=cache_enabled,
+            cache_max_age=cache_max_age,
+            force_refresh=force_refresh
+        )
+        self.offline_mode = offline_mode
         
         # Initialize simulation results
         self.results = None
@@ -246,3 +262,18 @@ class SimulationEngine:
             raise RuntimeError("No results available. Call run() first.")
         
         return self.results
+
+    def _get_cache_settings(self) -> Dict[str, Any]:
+        """Get cache settings from config."""
+        # Default cache settings
+        default_settings = {
+            'enabled': True,
+            'max_age': 86400,  # 24 hours
+            'force_refresh': False
+        }
+        
+        # Get settings from config if they exist
+        cache_settings = self.config.get('data', {}).get('cache', {})
+        
+        # Return merged settings (with defaults for missing values)
+        return {**default_settings, **cache_settings}

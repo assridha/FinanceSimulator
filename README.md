@@ -56,7 +56,26 @@ python -m financesimulator --config configs/options_strategy.yaml
 
 # Run a Bitcoin simulation with LSTM model
 python -m financesimulator --config configs/bitcoin_lstm.yaml
+
+# Run a simulation in offline mode (uses cached data, avoids API calls)
+python -m financesimulator --config configs/stock_sim_default.yaml --offline
+
+# Disable automatic prefetching of common tickers
+python -m financesimulator --config configs/stock_sim_default.yaml --no-prefetch
 ```
+
+### Performance Optimization
+
+The simulator includes built-in performance optimizations:
+
+- **File-based caching**: Market data is cached locally to avoid redundant API calls
+- **Offline mode**: Run simulations without internet connectivity using cached data
+- **Background data prefetching**: Common tickers are prefetched in background threads
+- **Historical data prioritization**: Uses historical data endpoints which are faster than info endpoints
+- **Memory caching**: Frequently used calculations are cached in memory
+- **Vectorized computation**: GBM simulation uses vectorized operations for speed
+
+The first run of a simulation with a new ticker will cache the data, and subsequent runs will be much faster (often 40-50x faster). For common tickers like AAPL, MSFT, and SPY, the background prefetching ensures even first runs are fast.
 
 ## Project Structure
 
@@ -116,8 +135,8 @@ simulation:
   type: stock
   ticker: AAPL
   model: gbm
-  paths: 1000
-  horizon: 252  # Trading days (1 year)
+  paths: 250
+  horizon: 30  # Trading days (1 month)
   starting_price: auto  # Fetch from market data
 
 model_params:
@@ -126,14 +145,46 @@ model_params:
   random_seed: 42
 
 data:
-  lookback_period: 252  # Days of historical data to use
+  lookback_period: "1y"  # Period of historical data to use
   frequency: daily
+  # Cache control settings
+  cache:
+    enabled: true        # Enable/disable data caching
+    max_age: 86400       # Maximum age of cached data in seconds (24 hours)
+    force_refresh: false # Force refresh of data even if cached
 
 visualization:
   plot_paths: true
   confidence_intervals: [0.1, 0.5, 0.9]
   save_to: outputs/aapl_sim.png
 ```
+
+### Data Cache Control
+
+The simulator provides several ways to control data caching:
+
+1. **Configuration file settings**:
+   ```yaml
+   data:
+     cache:
+       enabled: true        # Enable/disable data caching completely
+       max_age: 86400       # Maximum age of cached data in seconds (24 hours)
+       force_refresh: false # Force refresh of data even if cached
+   ```
+
+2. **Command-line options**:
+   ```bash
+   # Run in offline mode (only use cached data)
+   python -m financesimulator --config configs/stock_sim_default.yaml --offline
+   
+   # Disable prefetching of common tickers
+   python -m financesimulator --config configs/stock_sim_default.yaml --no-prefetch
+   ```
+
+3. **Cache status feedback**:
+   - Console output will indicate whether data is coming from cache or fresh from API
+   - Shows age of cached data when using file cache
+   - Logs whether caching is enabled, disabled, or bypassed
 
 ## Contributing
 

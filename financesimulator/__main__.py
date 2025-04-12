@@ -4,6 +4,7 @@ import argparse
 import sys
 import os
 import logging
+import time
 from typing import Dict, Any, Optional, List
 
 from financesimulator.simulation.engine import SimulationEngine
@@ -29,29 +30,58 @@ def parse_args():
     parser.add_argument('--no-plot', action='store_true', help='Disable plotting')
     parser.add_argument('--output', '-o', help='Output directory for plots')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose output')
+    parser.add_argument('--offline', action='store_true', help='Run in offline mode (use cached data only)')
+    parser.add_argument('--no-prefetch', action='store_true', help='Disable automatic prefetching of common tickers')
     
     return parser.parse_args()
 
 
-def run_simulation(config_path: str) -> Dict[str, Any]:
+def run_simulation(config_path: str, offline_mode: bool = False, prefetch: bool = True) -> Dict[str, Any]:
     """
     Run a simulation using the given configuration file.
     
     Args:
         config_path: Path to configuration YAML file
+        offline_mode: Whether to run in offline mode (no API calls)
+        prefetch: Whether to prefetch common data
         
     Returns:
         Simulation results
     """
-    logging.info(f"Running simulation with config: {config_path}")
+    # Load config to check cache settings (minimal load just for display)
+    try:
+        import yaml
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+            
+        # Get cache settings for logging
+        cache_settings = config.get('data', {}).get('cache', {})
+        cache_enabled = cache_settings.get('enabled', True)
+        force_refresh = cache_settings.get('force_refresh', False)
+        
+        cache_status = "enabled"
+        if not cache_enabled:
+            cache_status = "disabled"
+        elif force_refresh:
+            cache_status = "bypassed (force refresh)"
+            
+        logging.info(f"Running simulation with config: {config_path}" + 
+                    (", offline mode enabled" if offline_mode else "") +
+                    f", data cache {cache_status}")
+    except Exception:
+        # Fall back to basic logging if config can't be read
+        logging.info(f"Running simulation with config: {config_path}" + 
+                    (", offline mode enabled" if offline_mode else ""))
     
     # Create simulation engine
-    engine = SimulationEngine(config_path=config_path)
+    start_time = time.time()
+    engine = SimulationEngine(config_path=config_path, offline_mode=offline_mode, prefetch=prefetch)
     
     # Run simulation
     results = engine.run()
     
-    logging.info("Simulation completed successfully")
+    elapsed_time = time.time() - start_time
+    logging.info(f"Simulation completed successfully in {elapsed_time:.2f} seconds")
     
     return results
 
@@ -125,15 +155,20 @@ def main():
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     
+    start_time = time.time()
+    
     try:
         # Run simulation
-        results = run_simulation(args.config)
+        results = run_simulation(args.config, 
+                                offline_mode=args.offline,
+                                prefetch=not args.no_prefetch)
         
         # Create visualizations if enabled
         if not args.no_plot:
             create_visualizations(results, args.output)
         
-        logging.info("Finance Simulator completed successfully")
+        elapsed_time = time.time() - start_time
+        logging.info(f"Finance Simulator completed successfully in {elapsed_time:.2f} seconds")
         return 0
         
     except Exception as e:

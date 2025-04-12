@@ -2,10 +2,10 @@
 
 simulation:
   type: stock
-  ticker: AAPL
+  ticker: GOOG
   model: gbm
-  paths: 10  # Reduced from 1000 for better performance
-  horizon: 30  # Trading days (1 year)
+  paths: 250  # Reduced from 1000 for better performance
+  horizon: 30  # Trading days 30 days
   starting_price: auto  # Fetch from market data
 
 model_params:
@@ -16,8 +16,13 @@ model_params:
 data:
   lookback_period: "1y"  # Changed from 252 to "1y" string format
   frequency: daily
+  # Cache control settings
+  cache:
+    enabled: true        # Enable/disable data caching
+    max_age: 86400       # Maximum age of cached data in seconds (24 hours)
+    force_refresh: false # Force refresh of data even if cached
 
 visualization:
   plot_paths: true
   confidence_intervals: [0.1, 0.5, 0.9]
-  save_to: outputs/aapl_sim.png
+  save_to: outputs/goog_sim.png
