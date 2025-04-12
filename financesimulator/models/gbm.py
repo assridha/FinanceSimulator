@@ -108,21 +108,23 @@ class GeometricBrownianMotion(BaseModel):
         daily_drift = drift / 252
         daily_volatility = volatility / np.sqrt(252)
         
+        # Set up time grid
+        dt = 1  # 1 day
+        
+        # Precompute the drift term for efficiency
+        drift_term = (daily_drift - 0.5 * daily_volatility**2) * dt
+        
+        # Generate all random shocks at once for vectorization
+        np.random.seed(self.params.get('random_seed', None))
+        random_shocks = np.random.normal(0, 1, size=(paths, horizon)) * daily_volatility * np.sqrt(dt)
+        
         # Initialize price paths array
         price_paths = np.zeros((paths, horizon + 1))
         price_paths[:, 0] = starting_price
         
-        # Generate random shocks
-        random_shocks = np.random.normal(0, 1, (paths, horizon))
-        
-        # Simulate paths
+        # Vectorized computation of all paths
         for t in range(1, horizon + 1):
-            # GBM formula: S_t = S_{t-1} * exp((μ - 0.5*σ^2) * dt + σ * sqrt(dt) * Z)
-            # where Z is a standard normal random variable
-            price_paths[:, t] = price_paths[:, t-1] * np.exp(
-                (daily_drift - 0.5 * daily_volatility**2) + 
-                daily_volatility * random_shocks[:, t-1]
-            )
+            price_paths[:, t] = price_paths[:, t-1] * np.exp(drift_term + random_shocks[:, t-1])
         
         return price_paths
     

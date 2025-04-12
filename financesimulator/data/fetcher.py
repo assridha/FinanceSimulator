@@ -12,6 +12,7 @@ class MarketDataFetcher:
     def __init__(self):
         """Initialize the market data fetcher."""
         self.cache = {}  # Simple cache to avoid repeated API calls
+        self.calculation_cache = {}  # Cache for calculated metrics
     
     def get_stock_data(
         self, 
@@ -225,6 +226,11 @@ class MarketDataFetcher:
         Returns:
             Annualized volatility
         """
+        # Check cache first
+        cache_key = f"vol_{ticker}_{lookback_period}_{interval}"
+        if cache_key in self.calculation_cache:
+            return self.calculation_cache[cache_key]
+            
         # Get historical data
         data = self.get_stock_data(ticker, period=lookback_period, interval=interval)
         
@@ -251,6 +257,9 @@ class MarketDataFetcher:
             # Default to daily
             annualized_volatility = daily_volatility * np.sqrt(252)
             
+        # Cache the result
+        self.calculation_cache[cache_key] = annualized_volatility
+            
         return annualized_volatility
     
     def calculate_mean_return(
@@ -260,7 +269,7 @@ class MarketDataFetcher:
         interval: str = "1d"
     ) -> float:
         """
-        Calculate mean return for a stock.
+        Calculate mean historical return for a stock.
         
         Args:
             ticker: Stock ticker symbol
@@ -270,6 +279,11 @@ class MarketDataFetcher:
         Returns:
             Annualized mean return
         """
+        # Check cache first
+        cache_key = f"mean_{ticker}_{lookback_period}_{interval}"
+        if cache_key in self.calculation_cache:
+            return self.calculation_cache[cache_key]
+        
         # Get historical data
         data = self.get_stock_data(ticker, period=lookback_period, interval=interval)
         
@@ -279,21 +293,24 @@ class MarketDataFetcher:
         # Remove NaN values
         returns = data['Returns'].dropna()
         
-        # Calculate mean daily return
-        mean_daily_return = returns.mean()
+        # Calculate mean return
+        daily_mean_return = returns.mean()
         
         # Annualize mean return based on the interval
         if interval == '1d':
             # Assuming 252 trading days in a year
-            annualized_return = mean_daily_return * 252
+            annualized_mean_return = daily_mean_return * 252
         elif interval == '1wk':
             # Assuming 52 trading weeks in a year
-            annualized_return = mean_daily_return * 52
+            annualized_mean_return = daily_mean_return * 52
         elif interval == '1mo':
             # Assuming 12 trading months in a year
-            annualized_return = mean_daily_return * 12
+            annualized_mean_return = daily_mean_return * 12
         else:
             # Default to daily
-            annualized_return = mean_daily_return * 252
-            
-        return annualized_return
+            annualized_mean_return = daily_mean_return * 252
+        
+        # Cache the result
+        self.calculation_cache[cache_key] = annualized_mean_return
+        
+        return annualized_mean_return

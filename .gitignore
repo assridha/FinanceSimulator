@@ -18,6 +18,7 @@ yarn-debug.log
 /build
 /.next
 /out
+/outputs
 
 # Environment variables
 .env

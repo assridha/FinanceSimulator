@@ -4,8 +4,8 @@ simulation:
   type: stock
   ticker: AAPL
   model: gbm
-  paths: 1000
-  horizon: 252  # Trading days (1 year)
+  paths: 10  # Reduced from 1000 for better performance
+  horizon: 30  # Trading days (1 year)
   starting_price: auto  # Fetch from market data
 
 model_params:
@@ -14,7 +14,7 @@ model_params:
   random_seed: 42
 
 data:
-  lookback_period: 252  # Days of historical data to use
+  lookback_period: "1y"  # Changed from 252 to "1y" string format
   frequency: daily
 
 visualization:
