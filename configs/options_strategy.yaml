@@ -1,0 +1,37 @@
+# Configuration for options strategy simulation
+
+simulation:
+  type: options_strategy
+  paths: 1000
+  horizon: 90  # Trading days until option expiration
+
+stock:
+  ticker: TSLA
+  model: gbm
+  starting_price: auto
+
+model_params:
+  volatility: auto
+  drift: auto
+  random_seed: 42
+
+strategy:
+  - action: BUY
+    instrument: STOCK
+    quantity: 100
+  - action: SELL
+    instrument: CALL
+    quantity: 1
+    strike: 10%OTM  # 10% Out of the Money
+    expiration: 90d  # 90 days
+
+data:
+  lookback_period: 252
+  frequency: daily
+  risk_free_rate: auto  # Fetch current risk-free rate
+
+visualization:
+  plot_paths: true
+  plot_payoff: true
+  confidence_intervals: [0.1, 0.5, 0.9]
+  save_to: outputs/tsla_covered_call.png
