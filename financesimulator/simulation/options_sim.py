@@ -349,10 +349,6 @@ class OptionsSimulation:
         initial_values = {}
         total_initial_value = 0
         
-        # Debug: Print out the strategy details before simulation
-        print(f"DEBUG: Strategy Components: {len(strategy.components)}")
-        print(f"DEBUG: Initial cost from strategy: {strategy.initial_cost}")
-        
         for i, component in enumerate(strategy.components):
             if component.instrument_type == InstrumentType.STOCK:
                 # For stock components, calculate the full position value
@@ -365,7 +361,6 @@ class OptionsSimulation:
                     initial_value = -initial_value
                 initial_values[f"component_{i}"] = initial_value
                 total_initial_value += initial_value  # Add actual value (positive for cost, negative for credit)
-                print(f"DEBUG: Stock component {i}: quantity={component.quantity}, initial_value={initial_value}, action={component.action}")
             else:
                 # For option components, simulate option prices
                 option_type = 'call' if component.instrument_type == InstrumentType.CALL else 'put'
@@ -393,7 +388,6 @@ class OptionsSimulation:
                 initial_position_value = sign * initial_option_price * component.quantity
                 initial_values[f"component_{i}"] = initial_position_value  # Keep sign
                 total_initial_value += initial_position_value  # Add actual value (positive for cost, negative for credit)
-                print(f"DEBUG: Option component {i}: type={option_type}, quantity={component.quantity}, strike={strike}, initial_price={initial_option_price}, initial_position_value={initial_position_value}")
                 
                 for path_idx in range(num_paths):
                     component_prices[f"component_{i}"][path_idx, :] = self.options_pricer.price_along_path(
@@ -418,10 +412,6 @@ class OptionsSimulation:
         
         # Store total initial investment for proper return calculations
         self.total_initial_value = total_initial_value
-        print(f"DEBUG: Total initial value: {total_initial_value}")
-        
-        # Debug the first few values of strategy_values
-        print(f"DEBUG: Strategy values at t=0 for first 5 paths: {self.strategy_values[:5, 0]}")
         
         return self.stock_paths, component_prices, self.strategy_values
     
