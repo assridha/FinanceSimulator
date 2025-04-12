@@ -402,11 +402,25 @@ class OptionsSimulation:
             Tuple of (stock_paths, component_prices, strategy_values) arrays
         """
         total_start_time = time.time()
+        logging.info(f"Starting strategy simulation at {time.strftime('%H:%M:%S', time.localtime())}")
+        
+        # Add detailed timing for each step of initialization
+        step_times = {
+            'evaluate_strategy': 0,
+            'find_expiration': 0,
+            'path_preparation': 0,
+            'component_pricing': 0,
+            'strategy_values_calc': 0
+        }
         
         # Evaluate the strategy to ensure all components are resolved
+        step_start = time.time()
         strategy_details = strategy.evaluate()
+        step_times['evaluate_strategy'] = time.time() - step_start
+        logging.info(f"Strategy evaluation took {step_times['evaluate_strategy']:.2f} seconds")
         
         # Find the longest expiration among option components
+        step_start = time.time()
         max_expiration = 0
         for component in strategy.components:
             if component.instrument_type != InstrumentType.STOCK:
@@ -416,6 +430,9 @@ class OptionsSimulation:
                     self.data_fetcher
                 )['days_to_expiration']
                 max_expiration = max(max_expiration, days_to_expiry)
+        
+        step_times['find_expiration'] = time.time() - step_start
+        logging.info(f"Finding expiration took {step_times['find_expiration']:.2f} seconds")
         
         # Set horizon to longest expiration if not provided
         if horizon is None:
@@ -427,6 +444,7 @@ class OptionsSimulation:
             logging.info("Stock paths not found or dimensions don't match - simulating new paths")
             self.simulate_stock_paths(num_paths, horizon)
         stock_paths_elapsed = time.time() - stock_paths_start
+        step_times['path_preparation'] = stock_paths_elapsed
         logging.info(f"Stock path preparation took {stock_paths_elapsed:.2f} seconds")
         
         # Initialize arrays to store component prices
@@ -568,6 +586,7 @@ class OptionsSimulation:
             logging.info(f"Component {i} processing completed in {component_elapsed:.2f} seconds")
         
         component_calc_elapsed = time.time() - component_calc_start
+        step_times['component_pricing'] = component_calc_elapsed
         logging.info(f"Total component calculation time: {component_calc_elapsed:.2f} seconds")
         
         # Calculate strategy values by combining component prices
@@ -582,10 +601,24 @@ class OptionsSimulation:
         self.total_initial_value = total_initial_value
         
         strategy_calc_elapsed = time.time() - strategy_calc_start
+        step_times['strategy_values_calc'] = strategy_calc_elapsed
         logging.info(f"Strategy value calculation time: {strategy_calc_elapsed:.2f} seconds")
         
         total_elapsed = time.time() - total_start_time
+        
+        # Summarize all timing information
+        logging.info(f"Timing breakdown:")
+        for step, duration in step_times.items():
+            logging.info(f"  {step}: {duration:.2f} seconds ({duration/total_elapsed*100:.1f}%)")
+        
+        # Check if there's unaccounted time
+        accounted_time = sum(step_times.values())
+        unaccounted = total_elapsed - accounted_time
+        if unaccounted > 0.1:  # Only log if significant
+            logging.info(f"  unaccounted: {unaccounted:.2f} seconds ({unaccounted/total_elapsed*100:.1f}%)")
+        
         logging.info(f"Total strategy simulation time: {total_elapsed:.2f} seconds")
+        logging.info(f"Ending strategy simulation at {time.strftime('%H:%M:%S', time.localtime())}")
         
         return self.stock_paths, component_prices, self.strategy_values
     
