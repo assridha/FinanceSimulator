@@ -7,8 +7,7 @@ import logging
 import os
 
 from ..data.fetcher import MarketDataFetcher
-from ..models.base import BaseModel
-from ..models.gbm import GeometricBrownianMotion
+from ..models.base import BaseModel, ModelFactory
 from ..options.black_scholes import BlackScholes
 from ..options.strategy import OptionsStrategy, Action, InstrumentType
 
@@ -234,16 +233,19 @@ class OptionsSimulation:
     
     def _create_stock_model(self) -> BaseModel:
         """Create the stock price model based on configuration."""
-        # Currently only supporting GBM, can be extended for other models
-        if self.stock_model_name.lower() == 'gbm':
-            model_params = {
-                'drift': self.drift,
-                'volatility': self.volatility,
-                'random_seed': self.random_seed
-            }
-            return GeometricBrownianMotion(model_params)
-        else:
-            raise ValueError(f"Unsupported stock model: {self.stock_model_name}")
+        model_params = {
+            'drift': self.drift,
+            'volatility': self.volatility,
+            'random_seed': self.random_seed
+        }
+        
+        # Use the ModelFactory to create the appropriate model
+        # This decouples the model selection from the simulator
+        try:
+            return ModelFactory.create_model(self.stock_model_name, model_params)
+        except ValueError as e:
+            # Re-raise with specific error message for better diagnostics
+            raise ValueError(f"Error creating stock model '{self.stock_model_name}': {str(e)}")
     
     def simulate_stock_paths(self, num_paths: int, horizon: int) -> np.ndarray:
         """
