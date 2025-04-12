@@ -209,3 +209,72 @@ class BlackScholes:
         
         # If we hit max iterations, return best guess
         return (sigma_low + sigma_high) / 2
+
+    @staticmethod
+    def _calculate_d1_d2_vectorized(S: np.ndarray, K: float, r: float, sigma: float, T: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Vectorized calculation of d1 and d2 parameters for Black-Scholes formula.
+        
+        Args:
+            S: Array of stock prices
+            K: Option strike price
+            r: Risk-free interest rate (decimal)
+            sigma: Volatility (decimal)
+            T: Array of times to expiration (in years)
+            
+        Returns:
+            Tuple containing arrays of d1 and d2 values
+        """
+        # Handle edge cases
+        if np.any(T <= 0) or sigma <= 0:
+            raise ValueError("Time to expiration and volatility must be positive")
+            
+        # Calculate d1 and d2
+        d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
+        d2 = d1 - sigma * np.sqrt(T)
+        
+        return d1, d2
+    
+    @classmethod
+    def call_price_vectorized(cls, S: np.ndarray, K: float, r: float, sigma: float, T: np.ndarray) -> np.ndarray:
+        """
+        Vectorized calculation of European call option prices.
+        
+        Args:
+            S: Array of stock prices
+            K: Option strike price
+            r: Risk-free interest rate (decimal)
+            sigma: Volatility (decimal)
+            T: Array of times to expiration (in years)
+            
+        Returns:
+            Array of call option prices
+        """
+        d1, d2 = cls._calculate_d1_d2_vectorized(S, K, r, sigma, T)
+        
+        # Black-Scholes formula for call
+        call_prices = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
+        
+        return call_prices
+    
+    @classmethod
+    def put_price_vectorized(cls, S: np.ndarray, K: float, r: float, sigma: float, T: np.ndarray) -> np.ndarray:
+        """
+        Vectorized calculation of European put option prices.
+        
+        Args:
+            S: Array of stock prices
+            K: Option strike price
+            r: Risk-free interest rate (decimal)
+            sigma: Volatility (decimal)
+            T: Array of times to expiration (in years)
+            
+        Returns:
+            Array of put option prices
+        """
+        d1, d2 = cls._calculate_d1_d2_vectorized(S, K, r, sigma, T)
+        
+        # Black-Scholes formula for put
+        put_prices = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
+        
+        return put_prices

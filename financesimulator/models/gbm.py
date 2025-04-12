@@ -3,6 +3,8 @@
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, Optional, Union
+import time
+import logging
 
 from .base import BaseModel, ModelFactory
 
@@ -100,6 +102,9 @@ class GeometricBrownianMotion(BaseModel):
         Returns:
             Array of shape (paths, horizon+1) containing the simulated price paths
         """
+        start_time = time.time()
+        logging.info(f"GBM: Simulating {paths} paths for {horizon} days horizon")
+        
         # Extract parameters
         drift = self.params['drift']
         volatility = self.params['volatility']
@@ -115,6 +120,7 @@ class GeometricBrownianMotion(BaseModel):
         drift_term = (daily_drift - 0.5 * daily_volatility**2) * dt
         
         # Generate all random shocks at once for vectorization
+        setup_time = time.time()
         np.random.seed(self.params.get('random_seed', None))
         random_shocks = np.random.normal(0, 1, size=(paths, horizon)) * daily_volatility * np.sqrt(dt)
         
@@ -122,9 +128,23 @@ class GeometricBrownianMotion(BaseModel):
         price_paths = np.zeros((paths, horizon + 1))
         price_paths[:, 0] = starting_price
         
+        setup_elapsed = time.time() - setup_time
+        logging.info(f"GBM: Setup completed in {setup_elapsed:.2f} seconds")
+        
         # Vectorized computation of all paths
+        calc_time = time.time()
         for t in range(1, horizon + 1):
             price_paths[:, t] = price_paths[:, t-1] * np.exp(drift_term + random_shocks[:, t-1])
+            
+            # Log progress for very large simulations
+            if t % 50 == 0 and paths > 5000:
+                logging.debug(f"GBM: Processed {t}/{horizon} steps")
+        
+        calc_elapsed = time.time() - calc_time
+        logging.info(f"GBM: Path calculation completed in {calc_elapsed:.2f} seconds")
+        
+        total_elapsed = time.time() - start_time
+        logging.info(f"GBM: Total simulation time: {total_elapsed:.2f} seconds")
         
         return price_paths
     

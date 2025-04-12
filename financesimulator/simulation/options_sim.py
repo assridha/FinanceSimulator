@@ -5,6 +5,7 @@ import pandas as pd
 from typing import Dict, List, Any, Optional, Tuple, Union, Callable
 import logging
 import os
+import time
 
 from ..data.fetcher import MarketDataFetcher
 from ..models.base import BaseModel, ModelFactory
@@ -133,29 +134,80 @@ class OptionsPricer:
         Returns:
             Array of option prices along the path
         """
+        start_time = time.time()
+        path_length = len(price_path)
+        
         # Calculate option price at each point on the path
         option_prices = np.zeros_like(price_path)
         
-        for i, (S, t) in enumerate(zip(price_path, time_points)):
-            # Time to expiration in years
-            T = max(0, (days_to_expiration - t) / 365)
+        # Vectorized calculation of time to expiration in years
+        time_to_expiry = np.maximum(0, (days_to_expiration - time_points) / 365)
+        
+        # For Black-Scholes model, we can optimize using vectorized calculations
+        if self.pricing_model == 'black_scholes':
+            # Split into two parts: expired options and active options
+            expired_mask = time_to_expiry <= 0
+            active_mask = ~expired_mask
             
-            if T <= 0:
-                # Option at or past expiration, intrinsic value only
+            # Handle expired options (intrinsic value only)
+            if option_type.lower() == 'call':
+                option_prices[expired_mask] = np.maximum(0, price_path[expired_mask] - strike)
+            else:  # put
+                option_prices[expired_mask] = np.maximum(0, strike - price_path[expired_mask])
+            
+            # Handle active options using Black-Scholes
+            if np.any(active_mask):
                 if option_type.lower() == 'call':
-                    option_prices[i] = max(0, S - strike)
+                    active_prices = BlackScholes.call_price_vectorized(
+                        S=price_path[active_mask],
+                        K=strike,
+                        r=self.risk_free_rate,
+                        sigma=volatility,
+                        T=time_to_expiry[active_mask]
+                    )
                 else:  # put
-                    option_prices[i] = max(0, strike - S)
-            else:
-                # Price using the chosen model
-                option_prices[i] = self.price_option(
-                    option_type=option_type,
-                    S=S,
-                    K=strike,
-                    T=T,
-                    sigma=volatility
-                )
+                    active_prices = BlackScholes.put_price_vectorized(
+                        S=price_path[active_mask],
+                        K=strike,
+                        r=self.risk_free_rate,
+                        sigma=volatility,
+                        T=time_to_expiry[active_mask]
+                    )
                 
+                option_prices[active_mask] = active_prices
+        else:
+            # Fall back to non-vectorized calculation for other models
+            pricing_operations = 0
+            
+            for i, (S, t) in enumerate(zip(price_path, time_points)):
+                # Time to expiration in years
+                T = max(0, (days_to_expiration - t) / 365)
+                
+                if T <= 0:
+                    # Option at or past expiration, intrinsic value only
+                    if option_type.lower() == 'call':
+                        option_prices[i] = max(0, S - strike)
+                    else:  # put
+                        option_prices[i] = max(0, strike - S)
+                else:
+                    # Price using the chosen model
+                    option_prices[i] = self.price_option(
+                        option_type=option_type,
+                        S=S,
+                        K=strike,
+                        T=T,
+                        sigma=volatility
+                    )
+                pricing_operations += 1
+                
+                # Log progress periodically for long paths
+                if pricing_operations == path_length or pricing_operations % 100 == 0:
+                    elapsed = time.time() - start_time
+                    if elapsed > 0.1:  # Only log if it's taking significant time
+                        logging.debug(f"Priced {pricing_operations}/{path_length} points in {elapsed:.2f} seconds")
+        
+        elapsed = time.time() - start_time
+        logging.debug(f"Option pricing along path completed in {elapsed:.2f} seconds")
         return option_prices
 
 
@@ -268,8 +320,14 @@ class OptionsSimulation:
         Returns:
             Array of simulated stock price paths with shape (num_paths, horizon+1)
         """
+        start_time = time.time()
+        logging.info(f"Starting stock path simulation: {num_paths} paths, {horizon} days horizon")
+        
         self.stock_paths = self.stock_model.simulate(self.starting_price, horizon, num_paths)
         self.time_points = np.arange(horizon + 1)
+        
+        elapsed = time.time() - start_time
+        logging.info(f"Stock path simulation completed in {elapsed:.2f} seconds")
         return self.stock_paths
     
     def simulate_option(
@@ -332,6 +390,8 @@ class OptionsSimulation:
         Returns:
             Tuple of (stock_paths, component_prices, strategy_values) arrays
         """
+        total_start_time = time.time()
+        
         # Evaluate the strategy to ensure all components are resolved
         strategy_details = strategy.evaluate()
         
@@ -351,8 +411,12 @@ class OptionsSimulation:
             horizon = max_expiration
         
         # Make sure we have stock paths
+        stock_paths_start = time.time()
         if self.stock_paths is None or self.stock_paths.shape[0] != num_paths or self.stock_paths.shape[1] != horizon + 1:
+            logging.info("Stock paths not found or dimensions don't match - simulating new paths")
             self.simulate_stock_paths(num_paths, horizon)
+        stock_paths_elapsed = time.time() - stock_paths_start
+        logging.info(f"Stock path preparation took {stock_paths_elapsed:.2f} seconds")
         
         # Initialize arrays to store component prices
         component_prices = {}
@@ -361,7 +425,11 @@ class OptionsSimulation:
         initial_values = {}
         total_initial_value = 0
         
+        component_calc_start = time.time()
         for i, component in enumerate(strategy.components):
+            component_start = time.time()
+            logging.info(f"Processing component {i}: {component.instrument_type} - {component.action}")
+            
             if component.instrument_type == InstrumentType.STOCK:
                 # For stock components, calculate the full position value
                 sign = 1 if component.action == Action.BUY else -1
@@ -387,6 +455,7 @@ class OptionsSimulation:
                 component_prices[f"component_{i}"] = np.zeros_like(self.stock_paths)
                 
                 # Get initial option price
+                option_price_start = time.time()
                 initial_option_price = self.options_pricer.price_option(
                     option_type=option_type,
                     S=self.starting_price,
@@ -394,6 +463,7 @@ class OptionsSimulation:
                     T=days_to_expiry / 365,  # Convert to years
                     sigma=self.volatility
                 )
+                logging.info(f"Initial option pricing took {time.time() - option_price_start:.2f} seconds")
                 
                 # For option components, calculate option price and apply sign based on action
                 sign = 1 if component.action == Action.BUY else -1
@@ -401,21 +471,96 @@ class OptionsSimulation:
                 initial_values[f"component_{i}"] = initial_position_value  # Keep sign
                 total_initial_value += initial_position_value  # Add actual value (positive for cost, negative for credit)
                 
-                for path_idx in range(num_paths):
-                    component_prices[f"component_{i}"][path_idx, :] = self.options_pricer.price_along_path(
-                        option_type=option_type,
-                        strike=strike,
-                        days_to_expiration=days_to_expiry,
-                        price_path=self.stock_paths[path_idx, :],
-                        volatility=self.volatility,
-                        time_points=self.time_points
-                    ) * component.quantity
+                path_pricing_start = time.time()
+                
+                # Optimize by using vectorized operations instead of loop where possible
+                if self.options_pricer.pricing_model == 'black_scholes':
+                    logging.info(f"Using vectorized Black-Scholes pricing for component {i}")
+                    # Initialize component prices array
+                    prices_array = np.zeros_like(self.stock_paths)
                     
-                    # Apply sign based on action (buy/sell)
+                    # Process paths in vectorized batches
+                    batch_size = 100  # Process this many paths at once
+                    num_batches = (num_paths + batch_size - 1) // batch_size
+                    
+                    for batch_idx in range(num_batches):
+                        batch_start = batch_idx * batch_size
+                        batch_end = min((batch_idx + 1) * batch_size, num_paths)
+                        batch_paths = self.stock_paths[batch_start:batch_end]
+                        
+                        # Calculate option prices along each path in the batch
+                        for t in range(horizon + 1):
+                            # Time to expiration in years at this point
+                            time_to_expiry = max(0, (days_to_expiry - self.time_points[t]) / 365)
+                            
+                            if time_to_expiry <= 0:
+                                # Option expired - intrinsic value only
+                                if option_type == 'call':
+                                    prices_array[batch_start:batch_end, t] = np.maximum(0, batch_paths[:, t] - strike)
+                                else:  # put
+                                    prices_array[batch_start:batch_end, t] = np.maximum(0, strike - batch_paths[:, t])
+                            else:
+                                # Active options - use Black-Scholes vectorized
+                                if option_type == 'call':
+                                    prices_array[batch_start:batch_end, t] = BlackScholes.call_price_vectorized(
+                                        S=batch_paths[:, t],
+                                        K=strike,
+                                        r=self.risk_free_rate,
+                                        sigma=self.volatility,
+                                        T=np.full(batch_end - batch_start, time_to_expiry)
+                                    )
+                                else:  # put
+                                    prices_array[batch_start:batch_end, t] = BlackScholes.put_price_vectorized(
+                                        S=batch_paths[:, t],
+                                        K=strike,
+                                        r=self.risk_free_rate,
+                                        sigma=self.volatility,
+                                        T=np.full(batch_end - batch_start, time_to_expiry)
+                                    )
+                        
+                        # Log progress for large simulations
+                        if (batch_idx + 1) % 5 == 0 or batch_idx == num_batches - 1:
+                            progress = (batch_idx + 1) / num_batches * 100
+                            elapsed = time.time() - path_pricing_start
+                            logging.info(f"Option pricing progress: {progress:.1f}% ({batch_end}/{num_paths} paths) in {elapsed:.2f}s")
+                    
+                    # Apply quantity and action sign
+                    component_prices[f"component_{i}"] = prices_array * component.quantity
                     if component.action == Action.SELL:
-                        component_prices[f"component_{i}"][path_idx, :] *= -1
+                        component_prices[f"component_{i}"] *= -1
+                else:
+                    # Fall back to non-vectorized approach for other pricing models
+                    for path_idx in range(num_paths):
+                        component_prices[f"component_{i}"][path_idx, :] = self.options_pricer.price_along_path(
+                            option_type=option_type,
+                            strike=strike,
+                            days_to_expiration=days_to_expiry,
+                            price_path=self.stock_paths[path_idx, :],
+                            volatility=self.volatility,
+                            time_points=self.time_points
+                        ) * component.quantity
+                        
+                        # Apply sign based on action (buy/sell)
+                        if component.action == Action.SELL:
+                            component_prices[f"component_{i}"][path_idx, :] *= -1
+                        
+                        # Log progress periodically
+                        if (path_idx + 1) % 100 == 0 or path_idx == num_paths - 1:
+                            progress = (path_idx + 1) / num_paths * 100
+                            elapsed = time.time() - path_pricing_start
+                            logging.info(f"Option pricing progress: {progress:.1f}% ({path_idx+1}/{num_paths} paths) in {elapsed:.2f}s")
+                
+                path_pricing_elapsed = time.time() - path_pricing_start
+                logging.info(f"Option pricing along {num_paths} paths took {path_pricing_elapsed:.2f} seconds")
+            
+            component_elapsed = time.time() - component_start
+            logging.info(f"Component {i} processing completed in {component_elapsed:.2f} seconds")
+        
+        component_calc_elapsed = time.time() - component_calc_start
+        logging.info(f"Total component calculation time: {component_calc_elapsed:.2f} seconds")
         
         # Calculate strategy values by combining component prices
+        strategy_calc_start = time.time()
         self.strategy_values = np.zeros_like(self.stock_paths)
         
         for i, component in enumerate(strategy.components):
@@ -424,6 +569,12 @@ class OptionsSimulation:
         
         # Store total initial investment for proper return calculations
         self.total_initial_value = total_initial_value
+        
+        strategy_calc_elapsed = time.time() - strategy_calc_start
+        logging.info(f"Strategy value calculation time: {strategy_calc_elapsed:.2f} seconds")
+        
+        total_elapsed = time.time() - total_start_time
+        logging.info(f"Total strategy simulation time: {total_elapsed:.2f} seconds")
         
         return self.stock_paths, component_prices, self.strategy_values
     
