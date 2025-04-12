@@ -1,0 +1,23 @@
+# Default configuration for stock simulation
+
+simulation:
+  type: stock
+  ticker: AAPL
+  model: gbm
+  paths: 1000
+  horizon: 252  # Trading days (1 year)
+  starting_price: auto  # Fetch from market data
+
+model_params:
+  volatility: auto  # Calculate from historical data
+  drift: auto       # Calculate from historical data
+  random_seed: 42
+
+data:
+  lookback_period: 252  # Days of historical data to use
+  frequency: daily
+
+visualization:
+  plot_paths: true
+  confidence_intervals: [0.1, 0.5, 0.9]
+  save_to: outputs/aapl_sim.png
