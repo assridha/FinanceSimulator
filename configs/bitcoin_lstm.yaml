@@ -1,0 +1,28 @@
+# Configuration for Bitcoin simulation using LSTM
+
+simulation:
+  type: bitcoin
+  ticker: BTC-USD
+  model: lstm
+  paths: 500
+  horizon: 30  # Days
+  starting_price: auto
+
+model_params:
+  epochs: 100
+  batch_size: 32
+  sequence_length: 60  # Days of history to use for each prediction
+  hidden_layers: [64, 32]
+  dropout: 0.2
+  random_seed: 42
+
+data:
+  lookback_period: 730  # 2 years of data for training
+  frequency: daily
+  train_test_split: 0.8  # 80% for training, 20% for validation
+
+visualization:
+  plot_paths: true
+  plot_training: true
+  confidence_intervals: [0.1, 0.5, 0.9]
+  save_to: outputs/btc_forecast_lstm.png
