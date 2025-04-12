@@ -249,13 +249,6 @@ class OptionsSimulation:
             # The model-specific params can override basic params if needed
             model_specific_params = self.model_config.get(self.stock_model_name, {})
             model_params.update(model_specific_params)
-            
-            # Log the model-specific parameters to show they're being used
-            logging.info(f"Using stock model: {self.stock_model_name}")
-            logging.info(f"Basic parameters: drift={self.drift}, volatility={self.volatility}, random_seed={self.random_seed}")
-            logging.info(f"Model-specific parameters from config: {model_specific_params}")
-            logging.info(f"Final model parameters: {model_params}")
-        
         # Use the ModelFactory to create the appropriate model
         # This decouples the model selection from the simulator
         try:
