@@ -10,10 +10,28 @@ stock:
   model: gbm
   starting_price: auto
 
+# Common parameters shared by all models
 model_params:
   volatility: auto
   drift: auto
   random_seed: 42
+
+# Model-specific parameters
+models:
+  gbm:  # Geometric Brownian Motion parameters
+    # These override any common parameters defined above
+    mean_reversion: 0.0  # GBM doesn't use this, just demonstrating structure
+  
+  heston:  # Heston stochastic volatility model parameters
+    mean_reversion: 0.05
+    volatility_volatility: 0.3
+    correlation: -0.7
+    long_run_variance: 0.04
+  
+  jump_diffusion:  # Jump diffusion model parameters
+    jump_intensity: 0.1
+    jump_mean: -0.05
+    jump_std: 0.1
 
 strategy:
   - action: BUY

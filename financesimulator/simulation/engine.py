@@ -192,7 +192,7 @@ class SimulationEngine:
     
     def _run_stock_simulation(self) -> Dict[str, Any]:
         """
-        Run a stock simulation.
+        Run a stock price simulation.
         
         Returns:
             Dictionary containing simulation results
@@ -203,10 +203,25 @@ class SimulationEngine:
         paths = self.config['simulation']['paths']
         horizon = self.config['simulation']['horizon']
         starting_price = self.config['simulation']['starting_price']
-        model_params = self.config.get('model_params', {})
+        
+        # Handle model parameters more flexibly
+        # Extract both common parameters and model-specific parameters
+        model_params = {}
+        
+        # First add common parameters
+        if 'model_params' in self.config:
+            model_params.update(self.config['model_params'])
+        
+        # Then overlay model-specific parameters if they exist
+        if 'models' in self.config and model_name in self.config['models']:
+            model_specific_params = self.config['models'][model_name]
+            model_params.update(model_specific_params)
         
         # Create model
-        model = ModelFactory.create_model(model_name, model_params)
+        try:
+            model = ModelFactory.create_model(model_name, model_params)
+        except ValueError as e:
+            raise ValueError(f"Error creating model '{model_name}': {str(e)}")
         
         # Simulate price paths
         price_paths = model.simulate(starting_price, horizon, paths)
@@ -258,6 +273,32 @@ class SimulationEngine:
         horizon = self.config.get('simulation', {}).get('horizon', 252)
         output_dir = self.config.get('visualization', {}).get('output_dir', 'outputs')
         
+        # Get model-specific configurations from config
+        # This enables passing model-specific parameters to the simulation
+        model_config = {}
+        if 'model_params' in self.config:
+            # Extract common parameters first
+            common_params = {
+                k: v for k, v in self.config.get('model_params', {}).items()
+                if k in ['volatility', 'drift', 'random_seed']
+            }
+            
+            # Structure the model config to have model-specific params
+            # This allows different models to have their own sections
+            for model_name, model_section in self.config.get('models', {}).items():
+                model_config[model_name] = model_section
+                
+            # Add any model-specific configs from the main model_params section
+            # This is for backward compatibility or when the config is flat
+            if model_type in model_config:
+                # Add common params to model-specific section only if not already there
+                for k, v in common_params.items():
+                    if k not in model_config[model_type]:
+                        model_config[model_type][k] = v
+            else:
+                # If no specific section exists, create one with common params
+                model_config[model_type] = common_params
+        
         # Create options simulation
         options_sim = OptionsSimulation(
             ticker=ticker,
@@ -268,7 +309,8 @@ class SimulationEngine:
             dividend_yield=self.config.get('data', {}).get('dividend_yield', 0.0),
             pricing_model=self.config.get('options', {}).get('pricing_model', 'black_scholes'),
             stock_model=model_type,
-            random_seed=self.config.get('model_params', {}).get('random_seed', None)
+            random_seed=self.config.get('model_params', {}).get('random_seed', None),
+            model_config=model_config
         )
         
         # Generate stock price paths

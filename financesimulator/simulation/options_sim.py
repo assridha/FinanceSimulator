@@ -174,7 +174,8 @@ class OptionsSimulation:
         dividend_yield: float = 0.0,
         pricing_model: str = 'black_scholes',
         stock_model: str = 'gbm',
-        random_seed: Optional[int] = None
+        random_seed: Optional[int] = None,
+        model_config: Optional[Dict[str, Any]] = None
     ):
         """
         Initialize options simulation.
@@ -189,6 +190,7 @@ class OptionsSimulation:
             pricing_model: Model to use for option pricing
             stock_model: Model to use for stock price simulation
             random_seed: Random seed for reproducibility
+            model_config: Additional model-specific configuration parameters
         """
         self.ticker = ticker
         self.data_fetcher = MarketDataFetcher()
@@ -214,6 +216,7 @@ class OptionsSimulation:
         self.dividend_yield = dividend_yield
         self.stock_model_name = stock_model
         self.random_seed = random_seed
+        self.model_config = model_config or {}
         
         # Initialize stock price model
         self.stock_model = self._create_stock_model()
@@ -233,11 +236,19 @@ class OptionsSimulation:
     
     def _create_stock_model(self) -> BaseModel:
         """Create the stock price model based on configuration."""
+        # Create a comprehensive parameters dict combining standard and model-specific params
+        # Basic parameters that most models might need
         model_params = {
             'drift': self.drift,
             'volatility': self.volatility,
             'random_seed': self.random_seed
         }
+        
+        # Add any model-specific parameters from the model_config
+        if self.model_config:
+            # The model-specific params can override basic params if needed
+            model_specific_params = self.model_config.get(self.stock_model_name, {})
+            model_params.update(model_specific_params)
         
         # Use the ModelFactory to create the appropriate model
         # This decouples the model selection from the simulator
