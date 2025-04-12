@@ -96,6 +96,15 @@ def create_visualizations(results: Dict[str, Any], output_dir: Optional[str] = N
     """
     logging.info("Creating visualizations")
     
+    # Get ticker and simulation type for filenames
+    ticker = results.get('ticker', 'asset')
+    simulation_type = results.get('simulation_type', 'simulation')
+    
+    # Skip standard visualizations for options strategy simulations as they'll have their own visualizations
+    if simulation_type == 'options_strategy':
+        logging.info("Options strategy simulation detected - standard visualizations skipped")
+        return
+    
     # Create visualizer
     visualizer = SimulationVisualizer(results)
     
@@ -106,10 +115,6 @@ def create_visualizations(results: Dict[str, Any], output_dir: Optional[str] = N
     # Ensure output directory exists
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-    
-    # Get ticker and simulation type for filenames
-    ticker = results.get('ticker', 'asset')
-    simulation_type = results.get('simulation_type', 'simulation')
     
     # Generate summary dashboard
     dashboard_path = os.path.join(output_dir, f"{ticker}_{simulation_type}_summary.png")

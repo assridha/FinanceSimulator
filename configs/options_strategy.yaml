@@ -6,7 +6,7 @@ simulation:
   horizon: 90  # Trading days until option expiration
 
 stock:
-  ticker: TSLA
+  ticker: IBIT
   model: gbm
   starting_price: auto
 
@@ -21,14 +21,18 @@ strategy:
     quantity: 100
   - action: SELL
     instrument: CALL
-    quantity: 1
+    quantity: 100
     strike: 10%OTM  # 10% Out of the Money
     expiration: 90d  # 90 days
+
+options:
+  pricing_model: black_scholes  # Options pricing model (black_scholes, binomial, heston)
 
 data:
   lookback_period: "1y"  # Changed from 252 to "1y" string format
   frequency: daily
   risk_free_rate: auto  # Fetch current risk-free rate
+  dividend_yield: 0.0   # Dividend yield if applicable
   # Cache control settings
   cache:
     enabled: true
@@ -36,7 +40,10 @@ data:
     force_refresh: false
 
 visualization:
-  plot_paths: true
-  plot_payoff: true
+  plot_paths: true               # Plot strategy value paths
+  plot_payoff: true              # Plot payoff diagram at expiration
+  plot_strategy_vs_stock: true   # Compare strategy returns against stock-only returns
+  plot_distribution: true        # Plot distribution of final values
   confidence_intervals: [0.1, 0.5, 0.9]
+  output_dir: outputs            # Directory to save output images
   save_to: outputs/tsla_covered_call.png
