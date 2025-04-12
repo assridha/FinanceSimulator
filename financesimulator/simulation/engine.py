@@ -245,8 +245,42 @@ class SimulationEngine:
         Returns:
             Dictionary containing simulation results
         """
-        # To be implemented in options_sim.py
-        raise NotImplementedError("Options strategy simulation not yet implemented")
+        # Extract configuration
+        if 'stock' not in self.config:
+            raise ValueError("Options strategy simulation requires stock configuration")
+            
+        ticker = self.config['stock']['ticker']
+        model_name = self.config['stock'].get('model', 'gbm')
+        paths = self.config['simulation']['paths']
+        horizon = self.config['simulation']['horizon']
+        starting_price = self.config['stock'].get('starting_price', 'auto')
+        model_params = self.config.get('model_params', {})
+        strategy = self.config.get('strategy', [])
+        
+        # If starting price is 'auto', fetch it
+        if starting_price == 'auto':
+            starting_price = self.data_fetcher.get_current_price(ticker)
+            
+        # Create model for stock price simulation
+        model = ModelFactory.create_model(model_name, model_params)
+        
+        # Simulate stock price paths
+        price_paths = model.simulate(starting_price, horizon, paths)
+        
+        # For now, we're just returning the stock simulation results
+        # In a real implementation, we would apply the options strategy to calculate payoffs
+        self.results = {
+            'ticker': ticker,
+            'model': model_name,
+            'price_paths': price_paths,
+            'horizon': horizon,
+            'paths': paths,
+            'model_params': model.get_params(),
+            'strategy': strategy,
+            'simulation_type': 'options_strategy'
+        }
+        
+        return self.results
     
     def get_results(self) -> Dict[str, Any]:
         """

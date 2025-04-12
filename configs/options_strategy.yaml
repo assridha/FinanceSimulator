@@ -26,9 +26,14 @@ strategy:
     expiration: 90d  # 90 days
 
 data:
-  lookback_period: 252
+  lookback_period: "1y"  # Changed from 252 to "1y" string format
   frequency: daily
   risk_free_rate: auto  # Fetch current risk-free rate
+  # Cache control settings
+  cache:
+    enabled: true
+    max_age: 86400
+    force_refresh: false
 
 visualization:
   plot_paths: true
