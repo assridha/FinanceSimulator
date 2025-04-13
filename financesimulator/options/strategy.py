@@ -3,7 +3,7 @@
 from typing import List, Dict, Union, Optional, Tuple, Any
 from enum import Enum
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import time
 import logging
 

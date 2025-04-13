@@ -535,13 +535,15 @@ class MarketDataFetcher:
         if not available_dates:
             raise ValueError(f"No options data available for {ticker}")
         
-        # Convert target_date to datetime object if it's a string
+        # Convert target_date to datetime.date object if it's a string or datetime
         if isinstance(target_date, str):
             try:
                 target_date = dt.datetime.strptime(target_date, '%Y-%m-%d').date()
             except ValueError:
                 # Try another format
                 target_date = dt.datetime.strptime(target_date, '%m/%d/%Y').date()
+        elif isinstance(target_date, dt.datetime):
+            target_date = target_date.date()
         
         # Convert available dates to datetime objects
         available_dates_dt = [dt.datetime.strptime(date, '%Y-%m-%d').date() for date in available_dates]
