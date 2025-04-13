@@ -465,79 +465,114 @@ class MarketDataFetcher:
         return default_rate
     
     def get_option_chain(
-        self, 
-        ticker: str, 
-        expiration_date: Optional[Union[str, dt.date]] = None
-    ) -> Dict[str, pd.DataFrame]:
+        self, ticker: str, expiration_date: Optional[Union[str, dt.date, dt.datetime]] = None
+    ) -> Dict[str, Dict[str, pd.DataFrame]]:
         """
-        Get options chain for a given stock.
+        Get the options chain for a stock ticker.
         
         Args:
             ticker: Stock ticker symbol
-            expiration_date: Options expiration date. If None, get the nearest expiration.
-            
-        Returns:
-            Dictionary containing 'calls' and 'puts' DataFrames
-        """
-        stock = yf.Ticker(ticker)
-        
-        # Get list of available expiration dates
-        expiration_dates = stock.options
-        
-        if not expiration_dates:
-            raise ValueError(f"No options data available for {ticker}")
-            
-        logging.info(f"Available option expiration dates for {ticker}: {expiration_dates[:5]}{'...' if len(expiration_dates) > 5 else ''}")
-            
-        # If expiration date not specified, use the nearest one
-        if expiration_date is None:
-            expiration_date = expiration_dates[0]
-            logging.info(f"No expiration date specified, using first available: {expiration_date}")
-        
-        # Convert string date to datetime object if needed
-        date_obj = None
-        if isinstance(expiration_date, str):
-            try:
-                date_obj = dt.datetime.strptime(expiration_date, '%Y-%m-%d').date()
-                logging.info(f"Converted string date '{expiration_date}' to date object: {date_obj}")
-            except ValueError:
-                # Try another format
-                try:
-                    date_obj = dt.datetime.strptime(expiration_date, '%m/%d/%Y').date()
-                    logging.info(f"Converted string date '{expiration_date}' to date object (using alt format): {date_obj}")
-                except ValueError:
-                    logging.warning(f"Could not parse date string '{expiration_date}' using standard formats")
-        elif isinstance(expiration_date, dt.date):
-            date_obj = expiration_date
-            logging.info(f"Using date object directly: {date_obj}")
-        elif isinstance(expiration_date, dt.datetime):
-            date_obj = expiration_date.date()
-            logging.info(f"Extracted date from datetime: {date_obj}")
-        else:
-            logging.warning(f"Unexpected type for expiration_date: {type(expiration_date).__name__}")
-        
-        # Find nearest available expiration date if exact match not found
-        expiration_str = ''
-        if date_obj:
-            expiration_str = date_obj.strftime('%Y-%m-%d')
-        else:
-            expiration_str = str(expiration_date)
-            
-        logging.info(f"Checking if '{expiration_str}' is in available dates")
-        
-        if expiration_str not in expiration_dates:
-            nearest_date = self.find_nearest_expiration_date(ticker, date_obj or expiration_date)
-            logging.info(f"Exact expiration date {expiration_str} not found. Using nearest available: {nearest_date}")
-            expiration_date = nearest_date
+            expiration_date: Expiration date (optional). If not provided, will use the nearest available date.
+                Can be provided as string 'YYYY-MM-DD', date object, or datetime object.
                 
-        # Get options chain for given expiration
-        logging.info(f"Requesting option chain for {ticker} with expiration: {expiration_date}")
-        options = stock.option_chain(expiration_date if isinstance(expiration_date, str) else expiration_date.strftime('%Y-%m-%d'))
-        
-        return {
-            'calls': options.calls,
-            'puts': options.puts
-        }
+        Returns:
+            Dictionary with 'calls' and 'puts' as keys, containing DataFrames of option data
+            
+        Raises:
+            ValueError: If the options data cannot be retrieved or if the expiration date is invalid
+        """
+        try:
+            stock = yf.Ticker(ticker)
+            available_dates = stock.options
+            
+            if not available_dates:
+                error_msg = f"No options data available for {ticker}"
+                logging.error(error_msg)
+                raise ValueError(error_msg)
+            
+            logging.info(f"Available expiration dates for {ticker}: {available_dates[:5]}{'...' if len(available_dates) > 5 else ''}")
+            
+            # Handle the case where expiration_date is provided
+            if expiration_date is not None:
+                # If expiration_date is a string, try to convert it to a date object
+                if isinstance(expiration_date, str):
+                    try:
+                        # Try to parse as YYYY-MM-DD
+                        expiration_date_obj = dt.datetime.strptime(expiration_date, '%Y-%m-%d').date()
+                        expiration_date_str = expiration_date
+                        logging.info(f"Using provided expiration date: {expiration_date_str}")
+                    except ValueError:
+                        try:
+                            # Try to parse as MM/DD/YYYY
+                            expiration_date_obj = dt.datetime.strptime(expiration_date, '%m/%d/%Y').date()
+                            expiration_date_str = expiration_date_obj.strftime('%Y-%m-%d')
+                            logging.info(f"Converted provided date from MM/DD/YYYY to YYYY-MM-DD: {expiration_date_str}")
+                        except ValueError:
+                            error_msg = f"Invalid date format: '{expiration_date}'. Expected 'YYYY-MM-DD' or 'MM/DD/YYYY'"
+                            logging.error(error_msg)
+                            raise ValueError(error_msg)
+                
+                # If expiration_date is a datetime object, convert to date
+                elif isinstance(expiration_date, dt.datetime):
+                    expiration_date_obj = expiration_date.date()
+                    expiration_date_str = expiration_date_obj.strftime('%Y-%m-%d')
+                    logging.info(f"Converted datetime to date: {expiration_date_str}")
+                
+                # If expiration_date is a date object, convert to string
+                elif isinstance(expiration_date, dt.date):
+                    expiration_date_obj = expiration_date
+                    expiration_date_str = expiration_date_obj.strftime('%Y-%m-%d')
+                    logging.info(f"Using provided date object: {expiration_date_str}")
+                
+                else:
+                    error_msg = f"Unsupported date type: {type(expiration_date).__name__}. Expected string, date, or datetime"
+                    logging.error(error_msg)
+                    raise ValueError(error_msg)
+                
+                # Check if the expiration date is available
+                if expiration_date_str not in available_dates:
+                    logging.warning(f"Expiration date {expiration_date_str} not available for {ticker}")
+                    logging.info(f"Finding nearest available expiration date...")
+                    expiration_date_str = self.find_nearest_expiration_date(ticker, expiration_date_obj)
+                    logging.info(f"Using nearest available expiration date: {expiration_date_str}")
+            else:
+                # If no expiration date is provided, use the nearest available date
+                today = dt.date.today()
+                expiration_date_str = self.find_nearest_expiration_date(ticker, today)
+                logging.info(f"No expiration date provided. Using nearest available date: {expiration_date_str}")
+            
+            # Get the option chain for the specified expiration date
+            try:
+                option_chain = stock.option_chain(expiration_date_str)
+                logging.info(f"Successfully retrieved option chain for {ticker} with expiration date {expiration_date_str}")
+                
+                # Check if the option chain contains data
+                if option_chain.calls.empty and option_chain.puts.empty:
+                    error_msg = f"Retrieved empty option chain for {ticker} with expiration date {expiration_date_str}"
+                    logging.error(error_msg)
+                    raise ValueError(error_msg)
+                
+                # Log the number of calls and puts
+                logging.info(f"Retrieved {len(option_chain.calls)} calls and {len(option_chain.puts)} puts")
+                
+                return {
+                    'calls': option_chain.calls,
+                    'puts': option_chain.puts
+                }
+            except Exception as e:
+                error_msg = f"Error retrieving option chain for {ticker} with expiration date {expiration_date_str}: {str(e)}"
+                logging.error(error_msg)
+                raise ValueError(error_msg)
+                
+        except Exception as e:
+            if isinstance(e, ValueError):
+                # Re-raise ValueErrors since they're already properly formatted
+                raise
+            else:
+                # Wrap other exceptions with more context
+                error_msg = f"Error retrieving option chain for {ticker}: {str(e)}"
+                logging.error(error_msg)
+                raise ValueError(error_msg)
     
     def find_nearest_expiration_date(
         self,
@@ -553,34 +588,74 @@ class MarketDataFetcher:
             
         Returns:
             Nearest available expiration date in string format 'YYYY-MM-DD'
+            
+        Raises:
+            ValueError: If no options data is available for the ticker or
+                       if the target_date format is invalid
         """
-        stock = yf.Ticker(ticker)
-        available_dates = stock.options
-        
-        if not available_dates:
-            raise ValueError(f"No options data available for {ticker}")
-        
-        # Convert target_date to datetime.date object if it's a string or datetime
-        if isinstance(target_date, str):
+        try:
+            stock = yf.Ticker(ticker)
+            available_dates = stock.options
+            
+            if not available_dates:
+                error_msg = f"No options data available for {ticker}"
+                logging.error(error_msg)
+                raise ValueError(error_msg)
+            
+            # Convert target_date to datetime.date object if it's a string or datetime
+            if isinstance(target_date, str):
+                try:
+                    target_date = dt.datetime.strptime(target_date, '%Y-%m-%d').date()
+                    logging.info(f"Parsed date string '{target_date}' using YYYY-MM-DD format")
+                except ValueError:
+                    try:
+                        # Try another format
+                        target_date = dt.datetime.strptime(target_date, '%m/%d/%Y').date()
+                        logging.info(f"Parsed date string '{target_date}' using MM/DD/YYYY format")
+                    except ValueError:
+                        error_msg = f"Invalid date format: '{target_date}'. Expected 'YYYY-MM-DD' or 'MM/DD/YYYY'"
+                        logging.error(error_msg)
+                        raise ValueError(error_msg)
+            elif isinstance(target_date, dt.datetime):
+                target_date = target_date.date()
+                logging.info(f"Converted datetime to date: {target_date}")
+            elif not isinstance(target_date, dt.date):
+                error_msg = f"Unsupported date type: {type(target_date).__name__}. Expected string, date, or datetime"
+                logging.error(error_msg)
+                raise ValueError(error_msg)
+            
+            # Log available dates for debugging
+            logging.info(f"Available expiration dates for {ticker}: {available_dates[:5]}{'...' if len(available_dates) > 5 else ''}")
+            
+            # Convert available dates to datetime objects
             try:
-                target_date = dt.datetime.strptime(target_date, '%Y-%m-%d').date()
-            except ValueError:
-                # Try another format
-                target_date = dt.datetime.strptime(target_date, '%m/%d/%Y').date()
-        elif isinstance(target_date, dt.datetime):
-            target_date = target_date.date()
-        
-        # Convert available dates to datetime objects
-        available_dates_dt = [dt.datetime.strptime(date, '%Y-%m-%d').date() for date in available_dates]
-        
-        # Find the date with the smallest absolute difference
-        nearest_date = min(available_dates_dt, key=lambda x: abs((x - target_date).days))
-        
-        # Convert back to string format
-        nearest_date_str = nearest_date.strftime('%Y-%m-%d')
-        
-        logging.info(f"Found nearest expiration date to {target_date}: {nearest_date_str}")
-        return nearest_date_str
+                available_dates_dt = [dt.datetime.strptime(date, '%Y-%m-%d').date() for date in available_dates]
+            except ValueError as e:
+                error_msg = f"Error parsing available dates for {ticker}: {str(e)}"
+                logging.error(error_msg)
+                raise ValueError(error_msg)
+            
+            # Find the date with the smallest absolute difference
+            nearest_date = min(available_dates_dt, key=lambda x: abs((x - target_date).days))
+            
+            # Convert back to string format
+            nearest_date_str = nearest_date.strftime('%Y-%m-%d')
+            
+            # Log the difference in days for debugging
+            days_diff = abs((nearest_date - target_date).days)
+            logging.info(f"Found nearest expiration date to {target_date}: {nearest_date_str} (difference of {days_diff} days)")
+            
+            return nearest_date_str
+            
+        except Exception as e:
+            if isinstance(e, ValueError):
+                # Re-raise ValueErrors since they're already properly formatted
+                raise
+            else:
+                # Wrap other exceptions with more context
+                error_msg = f"Error finding nearest expiration date for {ticker}: {str(e)}"
+                logging.error(error_msg)
+                raise ValueError(error_msg)
     
     def find_option_by_criteria(
         self,
@@ -604,57 +679,141 @@ class MarketDataFetcher:
             
         Returns:
             Option data as pandas Series
+            
+        Raises:
+            ValueError: If no option matching the criteria can be found
         """
         # Get current stock price for OTM calculations
         current_price = self.get_current_price(ticker)
         
+        # Log detailed information about the expiration date being used
+        logging.info(f"Finding option with criteria: {criteria}={value} for {ticker} {option_type}")
+        logging.info(f"Expiration date input: {expiration_date} (type: {type(expiration_date).__name__})")
+        
+        # Standardize expiration date format
+        if isinstance(expiration_date, dt.datetime):
+            expiration_date = expiration_date.date()
+            logging.info(f"Converted datetime to date: {expiration_date}")
+        
         # Get options chain
-        options_chain = self.get_option_chain(ticker, expiration_date)
-        
-        # Select calls or puts based on option_type
-        if option_type.lower() == 'call':
-            options = options_chain['calls']
-        elif option_type.lower() == 'put':
-            options = options_chain['puts']
-        else:
-            raise ValueError("option_type must be either 'call' or 'put'")
-        
-        # Find option based on criteria
-        if criteria == 'strike':
-            # Find option with strike closest to the specified value
-            options['diff'] = abs(options['strike'] - value)
-            option = options.loc[options['diff'].idxmin()]
+        try:
+            options_chain = self.get_option_chain(ticker, expiration_date)
             
-        elif criteria == 'delta':
-            # Find option with delta closest to the specified value
-            if 'delta' not in options.columns:
-                # If greeks not in data, can't search by delta
-                raise ValueError("Delta information not available in options chain")
-                
-            options['diff'] = abs(options['delta'] - value)
-            option = options.loc[options['diff'].idxmin()]
-            
-        elif criteria == 'otm_pct':
-            # For calls, OTM means strike > current price
-            # For puts, OTM means strike < current price
+            # Select calls or puts based on option_type
             if option_type.lower() == 'call':
-                target_strike = current_price * (1 + value)
-                options['diff'] = abs(options['strike'] - target_strike)
-                option = options.loc[options['diff'].idxmin()]
+                options = options_chain['calls']
+            elif option_type.lower() == 'put':
+                options = options_chain['puts']
             else:
-                target_strike = current_price * (1 - value)
-                options['diff'] = abs(options['strike'] - target_strike)
-                option = options.loc[options['diff'].idxmin()]
-                
-        elif criteria == 'atm':
-            # Find at-the-money option (strike closest to current price)
-            options['diff'] = abs(options['strike'] - current_price)
-            option = options.loc[options['diff'].idxmin()]
+                raise ValueError("option_type must be either 'call' or 'put'")
             
-        else:
-            raise ValueError(f"Unknown criteria: {criteria}")
-        
-        return option
+            # Log diagnostics about available options
+            logging.info(f"Found {len(options)} {option_type} options for {ticker} with expiration {expiration_date}")
+            if len(options) > 0:
+                min_strike = options['strike'].min()
+                max_strike = options['strike'].max()
+                logging.info(f"Strike range: {min_strike} to {max_strike}")
+                
+                # Check for expiration field if needed later
+                expiration_field_found = False
+                expiration_field_name = None
+                for field in ['expiration', 'expirationDate', 'expDate']:
+                    if field in options.columns:
+                        expiration_field_found = True
+                        expiration_field_name = field
+                        logging.info(f"Found expiration field in options data: '{field}'")
+                        break
+                
+                if not expiration_field_found:
+                    logging.warning(f"No standard expiration field found in options data. Available columns: {list(options.columns)}")
+                    
+                    # Don't trust lastTradeDate as the expiration date - it's not the same thing
+                    if 'lastTradeDate' in options.columns:
+                        logging.warning(f"Found 'lastTradeDate' field, but this is NOT the expiration date")
+                    
+                    # Add a synthetic expiration field using the provided expiration date
+                    # This ensures we're using the correct date for expiration
+                    expiration_str = None
+                    if isinstance(expiration_date, dt.date):
+                        expiration_str = expiration_date.strftime('%Y-%m-%d')
+                    elif isinstance(expiration_date, str):
+                        # Try to verify if it's a valid date format 
+                        try:
+                            date_obj = dt.datetime.strptime(expiration_date, '%Y-%m-%d').date()
+                            expiration_str = expiration_date
+                        except ValueError:
+                            # If we can't parse it, just use it as is
+                            expiration_str = expiration_date
+                    else:
+                        # If we don't know the format, use the string representation
+                        expiration_str = str(expiration_date)
+                    
+                    options['expiration'] = expiration_str
+                    logging.info(f"Added synthetic expiration field with value: {expiration_str}")
+                    
+                    # Also log the lastTradeDate for comparison if available
+                    if 'lastTradeDate' in options.columns:
+                        sample_last_trade = options['lastTradeDate'].iloc[0] if not options['lastTradeDate'].empty else 'N/A'
+                        logging.info(f"For reference, lastTradeDate example: {sample_last_trade}")
+            else:
+                logging.warning(f"No {option_type} options found for {ticker} with expiration {expiration_date}")
+            
+            # Find option based on criteria
+            if criteria == 'strike':
+                # Find option with strike closest to the specified value
+                options['diff'] = abs(options['strike'] - value)
+                option = options.loc[options['diff'].idxmin()]
+                logging.info(f"Found option with strike {option['strike']} (requested: {value})")
+                
+            elif criteria == 'delta':
+                # Find option with delta closest to the specified value
+                if 'delta' not in options.columns:
+                    # If greeks not in data, can't search by delta
+                    raise ValueError("Delta information not available in options chain")
+                    
+                options['diff'] = abs(options['delta'] - value)
+                option = options.loc[options['diff'].idxmin()]
+                logging.info(f"Found option with delta {option['delta']} (requested: {value})")
+                
+            elif criteria == 'otm_pct':
+                # For calls, OTM means strike > current price
+                # For puts, OTM means strike < current price
+                if option_type.lower() == 'call':
+                    target_strike = current_price * (1 + value)
+                    options['diff'] = abs(options['strike'] - target_strike)
+                    option = options.loc[options['diff'].idxmin()]
+                else:
+                    target_strike = current_price * (1 - value)
+                    options['diff'] = abs(options['strike'] - target_strike)
+                    option = options.loc[options['diff'].idxmin()]
+                logging.info(f"Found option with strike {option['strike']} (target OTM: {target_strike})")
+                    
+            elif criteria == 'atm':
+                # Find at-the-money option (strike closest to current price)
+                options['diff'] = abs(options['strike'] - current_price)
+                option = options.loc[options['diff'].idxmin()]
+                logging.info(f"Found ATM option with strike {option['strike']} (current price: {current_price})")
+                
+            else:
+                raise ValueError(f"Unknown criteria: {criteria}")
+            
+            # Log all available fields for debugging
+            logging.info(f"Option data fields: {list(option.index)}")
+            
+            return option
+            
+        except Exception as e:
+            error_msg = str(e)
+            logging.error(f"Error finding option: {error_msg}")
+            
+            # Provide more context in the error message
+            if "expiration" in error_msg.lower():
+                stock = yf.Ticker(ticker)
+                avail_expirations = stock.options
+                logging.error(f"Available expiration dates for {ticker}: {avail_expirations}")
+                raise ValueError(f"Expiration issue for {ticker} {option_type}: {error_msg}. Available dates: {avail_expirations[:5]}")
+            else:
+                raise
     
     def calculate_historical_volatility(
         self, 

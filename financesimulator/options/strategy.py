@@ -6,6 +6,7 @@ import numpy as np
 from datetime import datetime, timedelta, date
 import time
 import logging
+import pandas as pd
 
 from ..data.fetcher import MarketDataFetcher
 from .black_scholes import BlackScholes
@@ -113,8 +114,14 @@ class OptionSpecification:
         else:
             raise ValueError(f"Invalid expiration specification: {self.expiration_spec}")
         
+        # If resolved_expiration is a datetime object, ensure it's just a date for consistent handling
+        if isinstance(self.resolved_expiration, datetime):
+            logging.info(f"Converting datetime object {self.resolved_expiration} to date for consistent handling")
+            # Convert to just a date object for consistent handling with Yahoo Finance API
+            self.resolved_expiration = self.resolved_expiration.date()
+        
         # Calculate days to expiration
-        days_to_expiration = (self.resolved_expiration - datetime.now()).days
+        days_to_expiration = (self.resolved_expiration - datetime.now().date()).days
         if days_to_expiration <= 0:
             raise ValueError("Option expiration must be in the future")
             
@@ -281,7 +288,24 @@ class OptionSpecification:
                 
                 # Get the actual market option details
                 market_strike = option['strike']
-                market_expiration = option['expiration']
+                # Add expiration date handling - it might be named differently or missing
+                market_expiration = None
+                # Don't use lastTradeDate as it's not the expiration date
+                for exp_field in ['expiration', 'expirationDate', 'expDate']:
+                    if exp_field in option and not pd.isna(option[exp_field]):
+                        market_expiration = option[exp_field]
+                        logging.info(f"Found expiration in option data under field '{exp_field}': {market_expiration}")
+                        break
+                
+                if market_expiration is None:
+                    # If we can't find expiration in the option data, use our resolved expiration
+                    # This is more accurate than using lastTradeDate which is NOT the expiration date
+                    if isinstance(self.resolved_expiration, (date, datetime)):
+                        market_expiration = self.resolved_expiration.strftime('%Y-%m-%d')
+                    else:
+                        market_expiration = str(self.resolved_expiration)
+                    logging.info(f"No expiration field found in option data, using resolved expiration: {market_expiration}")
+                
                 market_price = option['lastPrice']
                 market_volume = option.get('volume', 'N/A')
                 market_open_interest = option.get('openInterest', 'N/A')
@@ -296,6 +320,8 @@ class OptionSpecification:
                 logging.info(f"  - Requested strike: ${self.resolved_strike:.2f}")
                 logging.info(f"  - Actual strike: ${market_strike:.2f} ({strike_diff:+.2f}% difference)")
                 logging.info(f"  - Expiration date: {market_expiration}")
+                if 'lastTradeDate' in option and not pd.isna(option['lastTradeDate']):
+                    logging.info(f"  - Last trade date: {option['lastTradeDate']} (not the expiration date)")
                 logging.info(f"  - Market price: ${market_price:.2f}")
                 if market_bid != 'N/A' and market_ask != 'N/A':
                     logging.info(f"  - Bid/Ask: ${market_bid:.2f}/${market_ask:.2f} (spread: ${market_ask - market_bid:.2f})")

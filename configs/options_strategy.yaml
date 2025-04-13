@@ -3,7 +3,7 @@
 simulation:
   type: options_strategy
   paths: 1000
-  horizon: 90  # Trading days until option expiration
+  horizon: 40  # Trading days until option expiration
 
 stock:
   ticker: IBIT
@@ -41,7 +41,7 @@ strategy:
     instrument: CALL
     quantity: 100
     strike: 10%OTM  # 10% Out of the Money
-    expiration: 90d  # 90 days
+    expiration: 30d  # 90 days
 
 options:
   pricing_model: black_scholes  # Options pricing model (black_scholes, binomial, heston)
