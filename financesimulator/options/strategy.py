@@ -62,6 +62,10 @@ class OptionSpecification:
         self.resolved_expiration: Optional[datetime] = None
         self.option_price: Optional[float] = None
         self.greeks: Dict[str, float] = {}
+        self.resolved: bool = False
+        self.resolved_days_to_expiration: Optional[int] = None
+        self.resolved_price: Optional[float] = None
+        self.market_data_used: bool = False
     
     def resolve(self, ticker: str, current_price: float, data_fetcher: MarketDataFetcher, 
                 is_simulation: bool = False) -> Dict[str, Any]:
@@ -114,6 +118,9 @@ class OptionSpecification:
         if days_to_expiration <= 0:
             raise ValueError("Option expiration must be in the future")
             
+        # Store resolved days to expiration    
+        self.resolved_days_to_expiration = days_to_expiration
+        
         expiration_time = time.time() - expiration_start
         logging.info(f"Expiration resolution took {expiration_time:.4f} seconds")
         
@@ -218,6 +225,9 @@ class OptionSpecification:
                     T=years_to_expiration
                 )
                 
+            # Store the resolved price for easy access
+            self.resolved_price = self.option_price
+            
             # Calculate greeks
             self.greeks = BlackScholes.calculate_greeks(
                 option_type=self.option_type,
@@ -267,12 +277,46 @@ class OptionSpecification:
                 option_search_time = time.time() - option_search_start
                 logging.info(f"Option search took {option_search_time:.4f} seconds")
                 
-                self.option_price = option['lastPrice']
+                # Get the actual market option details
+                market_strike = option['strike']
+                market_expiration = option['expiration']
+                market_price = option['lastPrice']
+                market_volume = option.get('volume', 'N/A')
+                market_open_interest = option.get('openInterest', 'N/A')
+                market_bid = option.get('bid', 'N/A')
+                market_ask = option.get('ask', 'N/A')
+                
+                # Calculate the difference between requested and actual values
+                strike_diff = round(((market_strike - self.resolved_strike) / self.resolved_strike) * 100, 2)
+                
+                # Log detailed market option information
+                logging.info(f"Found market option contract: [Source: MARKET DATA]")
+                logging.info(f"  - Requested strike: ${self.resolved_strike:.2f}")
+                logging.info(f"  - Actual strike: ${market_strike:.2f} ({strike_diff:+.2f}% difference)")
+                logging.info(f"  - Expiration date: {market_expiration}")
+                logging.info(f"  - Market price: ${market_price:.2f}")
+                if market_bid != 'N/A' and market_ask != 'N/A':
+                    logging.info(f"  - Bid/Ask: ${market_bid:.2f}/${market_ask:.2f} (spread: ${market_ask - market_bid:.2f})")
+                if market_volume != 'N/A':
+                    logging.info(f"  - Volume: {market_volume}")
+                if market_open_interest != 'N/A':
+                    logging.info(f"  - Open Interest: {market_open_interest}")
+                
+                # Set the resolved values from market data
+                self.resolved_strike = market_strike
+                self.option_price = market_price
+                self.resolved_price = market_price
+                self.market_data_used = True
                 
                 # Get greeks if available
+                greek_values = []
                 for greek in ['delta', 'gamma', 'theta', 'vega', 'rho']:
                     if greek in option:
                         self.greeks[greek] = option[greek]
+                        greek_values.append(f"{greek}: {option[greek]:.4f}")
+                
+                if greek_values:
+                    logging.info(f"  - Greeks: {', '.join(greek_values)}")
                         
             except (ValueError, KeyError) as e:
                 logging.info(f"Market data not available ({str(e)}), using Black-Scholes model instead")
@@ -305,6 +349,9 @@ class OptionSpecification:
                         T=years_to_expiration
                     )
                     
+                # Store the resolved price for easy access
+                self.resolved_price = self.option_price
+                
                 # Calculate greeks
                 self.greeks = BlackScholes.calculate_greeks(
                     option_type=self.option_type,
@@ -314,6 +361,23 @@ class OptionSpecification:
                     sigma=volatility,
                     T=years_to_expiration
                 )
+                
+                # Log detailed theoretical option information
+                logging.info(f"Using theoretical option pricing: [Source: BLACK-SCHOLES MODEL]")
+                logging.info(f"  - Strike: ${self.resolved_strike:.2f}")
+                logging.info(f"  - Days to expiration: {days_to_expiration}")
+                logging.info(f"  - Risk-free rate: {risk_free_rate:.4f}")
+                logging.info(f"  - Volatility: {volatility:.4f}")
+                logging.info(f"  - Theoretical price: ${self.option_price:.2f}")
+                
+                # Log the calculated greeks
+                greek_values = []
+                for greek, value in self.greeks.items():
+                    greek_values.append(f"{greek}: {value:.4f}")
+                
+                if greek_values:
+                    logging.info(f"  - Greeks: {', '.join(greek_values)}")
+                
                 logging.info(f"Black-Scholes calculation took {time.time() - bs_start:.4f} seconds")
         
         pricing_time = time.time() - pricing_start
@@ -322,14 +386,22 @@ class OptionSpecification:
         total_time = time.time() - overall_start
         logging.info(f"Total option spec resolution took {total_time:.4f} seconds")
         
+        # Mark as resolved
+        self.resolved = True
+        
         # Return resolved option details
         return {
             'type': self.option_type,
             'strike': self.resolved_strike,
             'expiration': self.resolved_expiration,
-            'days_to_expiration': days_to_expiration,
+            'days_to_expiration': self.resolved_days_to_expiration,
             'price': self.option_price,
-            'greeks': self.greeks
+            'resolved_price': self.resolved_price,
+            'resolved_strike': self.resolved_strike,
+            'resolved_days_to_expiration': self.resolved_days_to_expiration,
+            'greeks': self.greeks,
+            'resolved': self.resolved,
+            'market_data_used': self.market_data_used
         }
 
 
@@ -422,7 +494,12 @@ class StrategyComponent:
                 'days_to_expiration': option_details['days_to_expiration'],
                 'price': option_details['price'],
                 'cost': self.initial_cost,
-                'greeks': option_details['greeks']
+                'greeks': option_details['greeks'],
+                'resolved': option_details['resolved'],
+                'resolved_price': option_details['resolved_price'],
+                'resolved_strike': option_details['resolved_strike'],
+                'resolved_days_to_expiration': option_details['resolved_days_to_expiration'],
+                'market_data_used': option_details['market_data_used']
             }
 
 
