@@ -233,13 +233,37 @@ class OptionSpecification:
             try:
                 logging.info(f"Searching for option with strike {self.resolved_strike} expiring in {days_to_expiration} days")
                 option_search_start = time.time()
-                option = data_fetcher.find_option_by_criteria(
-                    ticker=ticker,
-                    option_type=self.option_type,
-                    criteria='strike',
-                    value=self.resolved_strike,
-                    expiration_date=self.resolved_expiration
-                )
+                try:
+                    option = data_fetcher.find_option_by_criteria(
+                        ticker=ticker,
+                        option_type=self.option_type,
+                        criteria='strike',
+                        value=self.resolved_strike,
+                        expiration_date=self.resolved_expiration
+                    )
+                except ValueError as exp_error:
+                    # Check if this is an expiration date not found error
+                    if "Expiration" in str(exp_error) and "cannot be found" in str(exp_error):
+                        logging.info(f"Exact expiration date not found: {str(exp_error)}")
+                        # Find nearest available expiration date
+                        nearest_date = data_fetcher.find_nearest_expiration_date(ticker, self.resolved_expiration)
+                        logging.info(f"Using nearest available expiration date: {nearest_date}")
+                        
+                        # Try again with the nearest date
+                        option = data_fetcher.find_option_by_criteria(
+                            ticker=ticker,
+                            option_type=self.option_type,
+                            criteria='strike',
+                            value=self.resolved_strike,
+                            expiration_date=nearest_date
+                        )
+                        # Update the resolved expiration to the one we're actually using
+                        self.resolved_expiration = datetime.strptime(nearest_date, '%Y-%m-%d').date()
+                        days_to_expiration = (self.resolved_expiration - datetime.now().date()).days
+                    else:
+                        # Re-raise if it's a different error
+                        raise
+                
                 option_search_time = time.time() - option_search_start
                 logging.info(f"Option search took {option_search_time:.4f} seconds")
                 

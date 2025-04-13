@@ -8,6 +8,7 @@ import os
 import pickle
 import time
 from typing import Dict, Optional, Union, Tuple, List, Any
+import logging
 
 # Global risk-free rate cache for quick access across instances
 _GLOBAL_RISK_FREE_RATE = {
@@ -497,16 +498,62 @@ class MarketDataFetcher:
             except ValueError:
                 # Try another format
                 expiration_date = dt.datetime.strptime(expiration_date, '%m/%d/%Y').date()
+        
+        # Find nearest available expiration date if exact match not found
+        expiration_str = expiration_date.strftime('%Y-%m-%d') if isinstance(expiration_date, dt.date) else expiration_date
+        if expiration_str not in expiration_dates:
+            nearest_date = self.find_nearest_expiration_date(ticker, expiration_date)
+            logging.info(f"Exact expiration date {expiration_str} not found. Using nearest available: {nearest_date}")
+            expiration_date = nearest_date
                 
         # Get options chain for given expiration
-        options = stock.option_chain(expiration_date.strftime('%Y-%m-%d') 
-                                    if isinstance(expiration_date, dt.date) 
-                                    else expiration_date)
+        options = stock.option_chain(expiration_date if isinstance(expiration_date, str) else expiration_date.strftime('%Y-%m-%d'))
         
         return {
             'calls': options.calls,
             'puts': options.puts
         }
+    
+    def find_nearest_expiration_date(
+        self,
+        ticker: str,
+        target_date: Union[str, dt.date, dt.datetime]
+    ) -> str:
+        """
+        Find the nearest available expiration date to a target date.
+        
+        Args:
+            ticker: Stock ticker symbol
+            target_date: Target expiration date
+            
+        Returns:
+            Nearest available expiration date in string format 'YYYY-MM-DD'
+        """
+        stock = yf.Ticker(ticker)
+        available_dates = stock.options
+        
+        if not available_dates:
+            raise ValueError(f"No options data available for {ticker}")
+        
+        # Convert target_date to datetime object if it's a string
+        if isinstance(target_date, str):
+            try:
+                target_date = dt.datetime.strptime(target_date, '%Y-%m-%d').date()
+            except ValueError:
+                # Try another format
+                target_date = dt.datetime.strptime(target_date, '%m/%d/%Y').date()
+        
+        # Convert available dates to datetime objects
+        available_dates_dt = [dt.datetime.strptime(date, '%Y-%m-%d').date() for date in available_dates]
+        
+        # Find the date with the smallest absolute difference
+        nearest_date = min(available_dates_dt, key=lambda x: abs((x - target_date).days))
+        
+        # Convert back to string format
+        nearest_date_str = nearest_date.strftime('%Y-%m-%d')
+        
+        logging.info(f"Found nearest expiration date to {target_date}: {nearest_date_str}")
+        return nearest_date_str
     
     def find_option_by_criteria(
         self,
