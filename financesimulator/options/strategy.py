@@ -242,6 +242,8 @@ class OptionSpecification:
             # First try to get market price from option chain
             try:
                 logging.info(f"Searching for option with strike {self.resolved_strike} expiring in {days_to_expiration} days")
+                logging.info(f"Expiration date format being used: {self.resolved_expiration} (type: {type(self.resolved_expiration).__name__})")
+                
                 option_search_start = time.time()
                 try:
                     option = data_fetcher.find_option_by_criteria(
@@ -319,7 +321,13 @@ class OptionSpecification:
                     logging.info(f"  - Greeks: {', '.join(greek_values)}")
                         
             except (ValueError, KeyError) as e:
-                logging.info(f"Market data not available ({str(e)}), using Black-Scholes model instead")
+                logging.warning(f"Market data not available ({str(e)}), details:")
+                logging.warning(f"  - Ticker: {ticker}")
+                logging.warning(f"  - Option type: {self.option_type}")
+                logging.warning(f"  - Strike price: {self.resolved_strike}")
+                logging.warning(f"  - Expiration date: {self.resolved_expiration} (type: {type(self.resolved_expiration).__name__})")
+                logging.warning(f"  - Days to expiration: {days_to_expiration}")
+                logging.info(f"Falling back to Black-Scholes model for pricing")
                 # Fall back to Black-Scholes model
                 rfr_start = time.time()
                 risk_free_rate = data_fetcher.get_risk_free_rate()

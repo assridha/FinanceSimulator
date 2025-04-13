@@ -487,26 +487,51 @@ class MarketDataFetcher:
         if not expiration_dates:
             raise ValueError(f"No options data available for {ticker}")
             
+        logging.info(f"Available option expiration dates for {ticker}: {expiration_dates[:5]}{'...' if len(expiration_dates) > 5 else ''}")
+            
         # If expiration date not specified, use the nearest one
         if expiration_date is None:
             expiration_date = expiration_dates[0]
+            logging.info(f"No expiration date specified, using first available: {expiration_date}")
         
         # Convert string date to datetime object if needed
+        date_obj = None
         if isinstance(expiration_date, str):
             try:
-                expiration_date = dt.datetime.strptime(expiration_date, '%Y-%m-%d').date()
+                date_obj = dt.datetime.strptime(expiration_date, '%Y-%m-%d').date()
+                logging.info(f"Converted string date '{expiration_date}' to date object: {date_obj}")
             except ValueError:
                 # Try another format
-                expiration_date = dt.datetime.strptime(expiration_date, '%m/%d/%Y').date()
+                try:
+                    date_obj = dt.datetime.strptime(expiration_date, '%m/%d/%Y').date()
+                    logging.info(f"Converted string date '{expiration_date}' to date object (using alt format): {date_obj}")
+                except ValueError:
+                    logging.warning(f"Could not parse date string '{expiration_date}' using standard formats")
+        elif isinstance(expiration_date, dt.date):
+            date_obj = expiration_date
+            logging.info(f"Using date object directly: {date_obj}")
+        elif isinstance(expiration_date, dt.datetime):
+            date_obj = expiration_date.date()
+            logging.info(f"Extracted date from datetime: {date_obj}")
+        else:
+            logging.warning(f"Unexpected type for expiration_date: {type(expiration_date).__name__}")
         
         # Find nearest available expiration date if exact match not found
-        expiration_str = expiration_date.strftime('%Y-%m-%d') if isinstance(expiration_date, dt.date) else expiration_date
+        expiration_str = ''
+        if date_obj:
+            expiration_str = date_obj.strftime('%Y-%m-%d')
+        else:
+            expiration_str = str(expiration_date)
+            
+        logging.info(f"Checking if '{expiration_str}' is in available dates")
+        
         if expiration_str not in expiration_dates:
-            nearest_date = self.find_nearest_expiration_date(ticker, expiration_date)
+            nearest_date = self.find_nearest_expiration_date(ticker, date_obj or expiration_date)
             logging.info(f"Exact expiration date {expiration_str} not found. Using nearest available: {nearest_date}")
             expiration_date = nearest_date
                 
         # Get options chain for given expiration
+        logging.info(f"Requesting option chain for {ticker} with expiration: {expiration_date}")
         options = stock.option_chain(expiration_date if isinstance(expiration_date, str) else expiration_date.strftime('%Y-%m-%d'))
         
         return {
