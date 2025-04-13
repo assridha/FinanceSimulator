@@ -113,57 +113,90 @@ class SimulationEngine:
         This method handles parameters marked as 'auto' in the configuration, 
         such as starting_price, volatility, etc.
         """
+        logging.info("\n=== RESOLVING SIMULATION PARAMETERS ===")
         simulation_type = self.config['simulation']['type']
         
         # Process stock or bitcoin simulation
         if simulation_type in ['stock', 'bitcoin']:
             ticker = self.config['simulation']['ticker']
+            logging.info(f"Resolving parameters for {simulation_type.upper()} simulation of {ticker}")
             
             # Resolve starting price if auto
             if self.config['simulation'].get('starting_price') == 'auto':
-                self.config['simulation']['starting_price'] = self.data_fetcher.get_current_price(ticker)
+                starting_price = self.data_fetcher.get_current_price(ticker)
+                self.config['simulation']['starting_price'] = starting_price
+                logging.info(f"Resolved starting price: ${starting_price:.2f}")
+            else:
+                logging.info(f"Using provided starting price: ${self.config['simulation']['starting_price']:.2f}")
             
             # Resolve model parameters if auto
             if 'model_params' in self.config:
                 if self.config['model_params'].get('volatility') == 'auto':
                     lookback = self.config.get('data', {}).get('lookback_period', '1y')
-                    self.config['model_params']['volatility'] = self.data_fetcher.calculate_historical_volatility(
+                    volatility = self.data_fetcher.calculate_historical_volatility(
                         ticker, lookback_period=lookback
                     )
+                    self.config['model_params']['volatility'] = volatility
+                    logging.info(f"Resolved historical volatility: {volatility:.4f} (lookback: {lookback})")
+                else:
+                    logging.info(f"Using provided volatility: {self.config['model_params']['volatility']:.4f}")
                 
                 if self.config['model_params'].get('drift') == 'auto':
                     lookback = self.config.get('data', {}).get('lookback_period', '1y')
-                    self.config['model_params']['drift'] = self.data_fetcher.calculate_mean_return(
+                    drift = self.data_fetcher.calculate_mean_return(
                         ticker, lookback_period=lookback
                     )
+                    self.config['model_params']['drift'] = drift
+                    logging.info(f"Resolved mean return (drift): {drift:.4f} (lookback: {lookback})")
+                else:
+                    logging.info(f"Using provided drift: {self.config['model_params']['drift']:.4f}")
         
         # Process options or options strategy simulation
         elif simulation_type in ['options', 'options_strategy']:
+            logging.info(f"Resolving parameters for {simulation_type.upper()} simulation")
             # Handle stock component
             if 'stock' in self.config:
                 ticker = self.config['stock']['ticker']
+                logging.info(f"Resolving underlying stock parameters for {ticker}")
                 
                 # Resolve starting price if auto
                 if self.config['stock'].get('starting_price') == 'auto':
-                    self.config['stock']['starting_price'] = self.data_fetcher.get_current_price(ticker)
+                    starting_price = self.data_fetcher.get_current_price(ticker)
+                    self.config['stock']['starting_price'] = starting_price
+                    logging.info(f"Resolved stock starting price: ${starting_price:.2f}")
+                else:
+                    logging.info(f"Using provided stock starting price: ${self.config['stock']['starting_price']:.2f}")
                 
                 # Resolve model parameters if auto
                 if 'model_params' in self.config:
                     if self.config['model_params'].get('volatility') == 'auto':
                         lookback = self.config.get('data', {}).get('lookback_period', '1y')
-                        self.config['model_params']['volatility'] = self.data_fetcher.calculate_historical_volatility(
+                        volatility = self.data_fetcher.calculate_historical_volatility(
                             ticker, lookback_period=lookback
                         )
+                        self.config['model_params']['volatility'] = volatility
+                        logging.info(f"Resolved historical volatility: {volatility:.4f} (lookback: {lookback})")
+                    else:
+                        logging.info(f"Using provided volatility: {self.config['model_params']['volatility']:.4f}")
                     
                     if self.config['model_params'].get('drift') == 'auto':
                         lookback = self.config.get('data', {}).get('lookback_period', '1y')
-                        self.config['model_params']['drift'] = self.data_fetcher.calculate_mean_return(
+                        drift = self.data_fetcher.calculate_mean_return(
                             ticker, lookback_period=lookback
                         )
+                        self.config['model_params']['drift'] = drift
+                        logging.info(f"Resolved mean return (drift): {drift:.4f} (lookback: {lookback})")
+                    else:
+                        logging.info(f"Using provided drift: {self.config['model_params']['drift']:.4f}")
             
             # Handle risk-free rate if auto
             if self.config.get('data', {}).get('risk_free_rate') == 'auto':
-                self.config['data']['risk_free_rate'] = self.data_fetcher.get_risk_free_rate()
+                risk_free_rate = self.data_fetcher.get_risk_free_rate()
+                self.config['data']['risk_free_rate'] = risk_free_rate
+                logging.info(f"Resolved risk-free rate: {risk_free_rate:.4f}")
+            else:
+                if 'risk_free_rate' in self.config.get('data', {}):
+                    logging.info(f"Using provided risk-free rate: {self.config['data']['risk_free_rate']:.4f}")
     
     def run(self) -> Dict[str, Any]:
         """
@@ -172,11 +205,14 @@ class SimulationEngine:
         Returns:
             Dictionary containing simulation results
         """
+        logging.info("\n=== STARTING SIMULATION ===")
+        
         # Resolve automatic parameters
         self._resolve_auto_params()
         
         # Get simulation type
         simulation_type = self.config['simulation']['type']
+        logging.info(f"Running {simulation_type.upper()} simulation")
         
         # Run appropriate simulation
         if simulation_type == 'stock':
@@ -197,12 +233,21 @@ class SimulationEngine:
         Returns:
             Dictionary containing simulation results
         """
+        logging.info("\n=== STOCK SIMULATION SETUP ===")
+        
         # Extract configuration
         ticker = self.config['simulation']['ticker']
         model_name = self.config['simulation']['model']
         paths = self.config['simulation']['paths']
         horizon = self.config['simulation']['horizon']
         starting_price = self.config['simulation']['starting_price']
+        
+        logging.info(f"Simulation details:")
+        logging.info(f"- Ticker: {ticker}")
+        logging.info(f"- Model: {model_name}")
+        logging.info(f"- Starting price: ${starting_price:.2f}")
+        logging.info(f"- Simulation horizon: {horizon} days")
+        logging.info(f"- Number of paths: {paths}")
         
         # Handle model parameters more flexibly
         # Extract both common parameters and model-specific parameters
@@ -211,20 +256,47 @@ class SimulationEngine:
         # First add common parameters
         if 'model_params' in self.config:
             model_params.update(self.config['model_params'])
+            if 'volatility' in model_params:
+                logging.info(f"- Volatility: {model_params['volatility']:.4f}")
+            if 'drift' in model_params:
+                logging.info(f"- Drift (mean return): {model_params['drift']:.4f}")
         
         # Then overlay model-specific parameters if they exist
         if 'models' in self.config and model_name in self.config['models']:
             model_specific_params = self.config['models'][model_name]
             model_params.update(model_specific_params)
+            logging.info(f"- Additional {model_name} parameters: {model_specific_params}")
         
         # Create model
+        logging.info("\n=== INITIALIZING MODEL ===")
         try:
             model = ModelFactory.create_model(model_name, model_params)
+            logging.info(f"Successfully initialized {model_name} model")
         except ValueError as e:
-            raise ValueError(f"Error creating model '{model_name}': {str(e)}")
+            error_msg = f"Error creating model '{model_name}': {str(e)}"
+            logging.error(error_msg)
+            raise ValueError(error_msg)
         
         # Simulate price paths
+        logging.info("\n=== RUNNING SIMULATION ===")
+        logging.info(f"Simulating {paths} price paths for {ticker} over {horizon} days")
         price_paths = model.simulate(starting_price, horizon, paths)
+        logging.info(f"Simulation complete, generated {paths} price paths")
+        
+        # Calculate quick statistics for logging
+        final_prices = price_paths[:, -1]
+        mean_final = final_prices.mean()
+        median_final = float(sorted(final_prices)[len(final_prices) // 2])
+        min_final = final_prices.min()
+        max_final = final_prices.max()
+        
+        logging.info("\n=== SIMULATION RESULTS SUMMARY ===")
+        logging.info(f"Final price statistics after {horizon} days:")
+        logging.info(f"- Mean: ${mean_final:.2f}")
+        logging.info(f"- Median: ${median_final:.2f}")
+        logging.info(f"- Min: ${min_final:.2f}")
+        logging.info(f"- Max: ${max_final:.2f}")
+        logging.info(f"- Range: ${max_final - min_final:.2f}")
         
         # Store results
         self.results = {
@@ -234,7 +306,8 @@ class SimulationEngine:
             'horizon': horizon,
             'paths': paths,
             'model_params': model.get_params(),
-            'simulation_type': 'stock'  # Add simulation type
+            'simulation_type': 'stock',  # Add simulation type
+            'starting_price': starting_price
         }
         
         return self.results
@@ -256,273 +329,438 @@ class SimulationEngine:
         Returns:
             Dictionary containing simulation results
         """
-        # To be implemented in options_sim.py
-        raise NotImplementedError("Options simulation not yet implemented")
+        logging.info("\n=== OPTIONS SIMULATION SETUP ===")
+        
+        # Extract common configuration 
+        ticker = self.config['stock']['ticker']
+        model_name = self.config['stock'].get('model', 'gbm')
+        paths = self.config['simulation']['paths']
+        horizon = self.config['simulation']['horizon']
+        starting_price = self.config['stock']['starting_price']
+        
+        # Extract option specific configuration
+        option_type = self.config['option']['type'].lower()  # call or put
+        strike = self.config['option']['strike']
+        days_to_expiration = self.config['option']['days_to_expiration']
+        
+        logging.info(f"Options simulation details:")
+        logging.info(f"- Underlying ticker: {ticker}")
+        logging.info(f"- Stock model: {model_name}")
+        logging.info(f"- Starting stock price: ${starting_price:.2f}")
+        logging.info(f"- Option type: {option_type.upper()}")
+        logging.info(f"- Strike price: ${strike:.2f}")
+        logging.info(f"- Days to expiration: {days_to_expiration}")
+        logging.info(f"- Simulation horizon: {horizon} days")
+        logging.info(f"- Number of paths: {paths}")
+        
+        # Get volatility and risk-free rate for option pricing
+        volatility = self.config['model_params'].get('volatility')
+        drift = self.config['model_params'].get('drift')
+        risk_free_rate = self.config['data'].get('risk_free_rate')
+        
+        logging.info(f"- Volatility: {volatility:.4f}")
+        logging.info(f"- Drift (mean return): {drift:.4f}")
+        logging.info(f"- Risk-free rate: {risk_free_rate:.4f}")
+        
+        # Calculate initial option price
+        from financesimulator.options.black_scholes import black_scholes_price
+        initial_option_price = black_scholes_price(
+            option_type=option_type,
+            S=starting_price,
+            K=strike,
+            T=days_to_expiration/252,  # Convert days to years
+            r=risk_free_rate,
+            sigma=volatility
+        )
+        
+        logging.info(f"Initial option pricing:")
+        logging.info(f"- Black-Scholes price: ${initial_option_price:.2f}")
+        logging.info(f"- Stock price / Strike ratio: {starting_price/strike:.4f}")
+        
+        # Try to get real market option price if available
+        try:
+            option_market_data = self.data_fetcher.get_option_price(
+                ticker=ticker,
+                option_type=option_type,
+                strike=strike,
+                days_to_expiration=days_to_expiration
+            )
+            if option_market_data:
+                logging.info(f"- Market option price: ${option_market_data['price']:.2f}")
+                logging.info(f"- Market implied volatility: {option_market_data['implied_volatility']:.4f}")
+        except Exception as e:
+            logging.info(f"- Market option data not available: {str(e)}")
     
     def _run_options_strategy_simulation(self) -> Dict[str, Any]:
         """
         Run an options strategy simulation.
         
         Returns:
-            Dictionary of results
+            Dictionary containing simulation results
         """
-        # Similar setup as stock simulation
-        ticker = self.config.get('stock', {}).get('ticker', 'SPY')
-        model_type = self.config.get('stock', {}).get('model', 'gbm')
-        num_paths = self.config.get('simulation', {}).get('paths', 1000)
-        horizon = self.config.get('simulation', {}).get('horizon', 252)
-        output_dir = self.config.get('visualization', {}).get('output_dir', 'outputs')
+        logging.info("\n=== OPTIONS STRATEGY SIMULATION SETUP ===")
         
-        # Get model-specific configurations from config
-        # This enables passing model-specific parameters to the simulation
-        model_config = {}
-        if 'model_params' in self.config:
-            # Extract common parameters first
-            common_params = {
-                k: v for k, v in self.config.get('model_params', {}).items()
-                if k in ['volatility', 'drift', 'random_seed']
-            }
+        # Extract configuration
+        ticker = self.config['stock']['ticker']
+        starting_price = self.config['stock']['starting_price']
+        paths = self.config['simulation']['paths']
+        horizon = self.config.get('simulation', {}).get('horizon')
+        
+        logging.info(f"Strategy simulation details:")
+        logging.info(f"- Underlying ticker: {ticker}")
+        logging.info(f"- Starting stock price: ${starting_price:.2f}")
+        logging.info(f"- Number of paths: {paths}")
+        if horizon:
+            logging.info(f"- Specific horizon: {horizon} days")
+        else:
+            logging.info(f"- Horizon: Auto (based on strategy expirations)")
             
-            # Structure the model config to have model-specific params
-            # This allows different models to have their own sections
-            for model_name, model_section in self.config.get('models', {}).items():
-                model_config[model_name] = model_section
-                
-            # Add any model-specific configs from the main model_params section
-            # This is for backward compatibility or when the config is flat
-            if model_type in model_config:
-                # Add common params to model-specific section only if not already there
-                for k, v in common_params.items():
-                    if k not in model_config[model_type]:
-                        model_config[model_type][k] = v
-            else:
-                # If no specific section exists, create one with common params
-                model_config[model_type] = common_params
+        # Get model parameters
+        model_type = self.config['stock'].get('model', 'gbm')
+        volatility = self.config['model_params'].get('volatility')
+        drift = self.config['model_params'].get('drift')
+        risk_free_rate = self.config['data'].get('risk_free_rate')
         
-        # Create options simulation
-        options_sim = OptionsSimulation(
-            ticker=ticker,
-            starting_price=self.config.get('stock', {}).get('starting_price', None),
-            volatility=self.config.get('model_params', {}).get('volatility', None),
-            drift=self.config.get('model_params', {}).get('drift', None),
-            risk_free_rate=self.config.get('data', {}).get('risk_free_rate', None),
-            dividend_yield=self.config.get('data', {}).get('dividend_yield', 0.0),
-            pricing_model=self.config.get('options', {}).get('pricing_model', 'black_scholes'),
-            stock_model=model_type,
-            random_seed=self.config.get('model_params', {}).get('random_seed', None),
-            model_config=model_config
-        )
+        logging.info(f"Model parameters:")
+        logging.info(f"- Stock model: {model_type}")
+        logging.info(f"- Volatility: {volatility:.4f}")
+        logging.info(f"- Drift (mean return): {drift:.4f}")
+        logging.info(f"- Risk-free rate: {risk_free_rate:.4f}")
         
-        # Generate stock price paths
-        logging.info(f"Simulating {num_paths} price paths for {ticker} using {model_type} model")
-        stock_paths = options_sim.simulate_stock_paths(num_paths, horizon)
-        starting_price = options_sim.starting_price
-        
-        # Parse strategy configuration
+        # Set up strategy components
         strategy_config = self.config.get('strategy', [])
-        expiration_days = horizon  # Default to simulation horizon
         
-        # Create strategy
-        strategy = OptionsStrategy(ticker=ticker)
+        # Check if strategy is a list or dict and handle accordingly
+        if isinstance(strategy_config, list):
+            # Handle legacy format where strategy is a list of components
+            strategy_name = f"{ticker} Strategy"
+            components = strategy_config
+        elif isinstance(strategy_config, dict):
+            # Handle newer format where strategy is a dict with 'name' and 'components' keys
+            strategy_name = strategy_config.get('name', f"{ticker} Strategy")
+            components = strategy_config.get('components', [])
+        else:
+            # Handle unexpected format
+            logging.error(f"Unexpected strategy configuration format: {type(strategy_config)}")
+            strategy_name = f"{ticker} Strategy"
+            components = []
         
-        # Add components to strategy based on configuration
-        for component in strategy_config:
-            action = component.get('action', '').lower()
-            instrument = component.get('instrument', '').lower()
-            quantity = component.get('quantity', 1)
+        logging.info(f"\n=== STRATEGY: {strategy_name.upper()} ===")
+        logging.info(f"Number of components: {len(components)}")
+        
+        # Create strategy instance
+        logging.info("Creating strategy components:")
+        strategy = OptionsStrategy(ticker=ticker, name=strategy_name)
+        
+        # Add each component to the strategy
+        for i, component_config in enumerate(components):
+            instrument = component_config.get('instrument', 'stock')
+            action = component_config.get('action', 'buy')
+            quantity = component_config.get('quantity', 1)
             
-            if instrument == 'stock':
-                # Add stock position
-                position = StrategyComponent(
-                    instrument_type=InstrumentType.STOCK,
-                    action=Action(action.upper()),
+            logging.info(f"Component {i+1}: {action.upper()} {quantity}x {instrument.upper()}")
+            
+            # Process stock component
+            if instrument.lower() == 'stock':
+                logging.info(f"  - Adding stock position: {action} {quantity} shares")
+                logging.info(f"  - Current stock price: ${starting_price:.2f}")
+                strategy.add_stock(
+                    action=action,
                     quantity=quantity
                 )
-                strategy.add_component(position)
+            
+            # Process option component
+            elif instrument.lower() in ['call', 'put']:
+                strike = component_config.get('strike')
+                expiration = component_config.get('expiration')
+                strike_pct = component_config.get('strike_pct')
+                days_to_expiration = component_config.get('days_to_expiration')
+                strike_type = 'ATM'
                 
-            elif instrument in ['call', 'put']:
-                # Parse strike price
-                strike_str = str(component.get('strike', '0%ATM'))
-                if '%' in strike_str:
-                    # Percentage based strike (e.g., 10%OTM, 5%ITM, 0%ATM)
-                    parts = strike_str.split('%')
-                    percent = float(parts[0]) / 100
+                # Parse strike if it's a string with format like "10%OTM" or "5%ITM"
+                if isinstance(strike, str) and '%' in strike:
+                    parts = strike.split('%')
+                    pct_value = float(parts[0])
                     moneyness = parts[1].upper()
                     
                     if moneyness == 'ATM':
-                        strike = starting_price
+                        calculated_strike = starting_price
+                        strike_type = 'ATM'
                     elif moneyness == 'OTM':
-                        if instrument == 'call':
-                            strike = starting_price * (1 + percent)
+                        if instrument.lower() == 'call':
+                            calculated_strike = starting_price * (1 + pct_value/100)
                         else:  # put
-                            strike = starting_price * (1 - percent)
+                            calculated_strike = starting_price * (1 - pct_value/100)
+                        strike_type = f"{pct_value}% OTM"
                     elif moneyness == 'ITM':
-                        if instrument == 'call':
-                            strike = starting_price * (1 - percent)
+                        if instrument.lower() == 'call':
+                            calculated_strike = starting_price * (1 - pct_value/100)
                         else:  # put
-                            strike = starting_price * (1 + percent)
+                            calculated_strike = starting_price * (1 + pct_value/100)
+                        strike_type = f"{pct_value}% ITM"
+                    
+                    logging.info(f"  - Parsed strike {strike} to ${calculated_strike:.2f} ({strike_type})")
+                    strike = calculated_strike
+                    
+                # Parse expiration if it's a string with format like "30d" or "3m"
+                if isinstance(expiration, str):
+                    if expiration.endswith('d'):
+                        days_to_expiration = int(expiration[:-1])
+                        logging.info(f"  - Parsed expiration {expiration} to {days_to_expiration} days")
+                    elif expiration.endswith('m'):
+                        # Convert months to days (approximate)
+                        months = int(expiration[:-1])
+                        days_to_expiration = months * 30
+                        logging.info(f"  - Parsed expiration {expiration} to {days_to_expiration} days (approx {months} months)")
+                
+                if strike:
+                    logging.info(f"  - Strike price: ${strike:.2f}")
+                    strike_type = 'custom'
+                elif strike_pct:
+                    logging.info(f"  - Strike percentage: {strike_pct:.1f}% of current price")
+                    calculated_strike = starting_price * (1 + strike_pct/100)
+                    logging.info(f"  - Calculated strike: ${calculated_strike:.2f}")
+                    strike_type = f"{strike_pct:+.1f}%"
+                
+                if expiration:
+                    logging.info(f"  - Expiration date: {expiration}")
+                elif days_to_expiration:
+                    logging.info(f"  - Days to expiration: {days_to_expiration}")
+                
+                # Set option spec fields
+                option_spec = {}
+                if strike:
+                    option_spec['strike'] = strike
+                elif strike_pct:
+                    option_spec['strike_pct'] = strike_pct
+                
+                if expiration:
+                    option_spec['expiration'] = expiration
+                elif days_to_expiration:
+                    option_spec['days_to_expiration'] = days_to_expiration
+                
+                delta = component_config.get('delta')
+                if delta:
+                    option_spec['delta'] = delta
+                    logging.info(f"  - Target delta: {delta:.2f}")
+                    strike_type = f"delta-{delta}"
+                
+                logging.info(f"  - Adding {strike_type} {instrument} option: {action} {quantity} contracts")
+                
+                # Determine the strike specification to use
+                strike_spec = None
+                if strike:
+                    strike_spec = strike
+                elif strike_pct:
+                    # Format as percentage OTM/ITM based on whether strike is above or below current price
+                    if strike_pct > 0:
+                        strike_spec = f"{strike_pct}%OTM"
+                    elif strike_pct < 0:
+                        strike_spec = f"{abs(strike_pct)}%ITM"
                     else:
-                        raise ValueError(f"Invalid moneyness in strike: {strike_str}")
+                        strike_spec = "ATM"
+                elif delta:
+                    strike_spec = f"delta:{delta}"
                 else:
-                    # Absolute strike price
-                    strike = float(strike_str)
-                
-                # Parse expiration
-                expiration = component.get('expiration', f"{horizon}d")
-                if isinstance(expiration, str) and expiration.endswith('d'):
-                    expiration_days = int(expiration[:-1])
+                    strike_spec = "ATM"  # Default to ATM if no strike specified
+
+                # Determine the expiration specification to use
+                expiration_spec = None
+                if expiration:
+                    expiration_spec = expiration
+                elif days_to_expiration:
+                    expiration_spec = days_to_expiration
                 else:
-                    expiration_days = int(expiration)
+                    # Default to horizon days if available, otherwise 30 days
+                    expiration_spec = horizon if horizon else 30
                 
-                # Create option specification
-                option_spec = OptionSpecification(
+                strategy.add_option(
                     option_type=instrument,
-                    strike_spec=strike,
-                    expiration_spec=expiration_days,
+                    action=action,
                     quantity=quantity,
-                    action=Action(action.upper())
+                    strike_spec=strike_spec,
+                    expiration_spec=expiration_spec
                 )
-                
-                # Add option position
-                position = StrategyComponent(
-                    instrument_type=InstrumentType.CALL if instrument == 'call' else InstrumentType.PUT,
-                    action=Action(action.upper()),
-                    quantity=quantity,
-                    option_spec=option_spec
-                )
-                strategy.add_component(position)
-                
+            # Unknown instrument type
             else:
                 logging.warning(f"Unknown instrument type: {instrument}")
         
-        # Simulate strategy
+        logging.info(f"\n=== EVALUATING STRATEGY ===")
         logging.info(f"Simulating {ticker} options strategy: {strategy.name}")
-        stock_paths, component_values, strategy_values = options_sim.simulate_strategy(
-            strategy=strategy,
-            num_paths=num_paths,
+        
+        # Create options simulation instance
+        options_sim = OptionsSimulation(
+            ticker=ticker,
+            starting_price=starting_price,
+            volatility=volatility,
+            drift=drift,
+            risk_free_rate=risk_free_rate,
+            stock_model=model_type,
+            random_seed=self.config['model_params'].get('random_seed')
+        )
+        
+        # Run strategy simulation
+        logging.info("\n=== RUNNING STRATEGY SIMULATION ===")
+        stock_paths, component_prices, strategy_values = options_sim.simulate_strategy(
+            strategy=strategy, 
+            num_paths=paths,
             horizon=horizon
         )
         
         # Calculate statistics
-        strategy_details = strategy.evaluate()
-        initial_investment = options_sim.total_initial_value
-        stats = options_sim.calculate_statistics(strategy_values, initial_investment)
+        logging.info("\n=== STRATEGY RESULTS SUMMARY ===")
         
-        # Create visualizations
-        if self.config.get('visualization', {}).get('plot_paths', True):
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
-                
-            # Create visualizer instance
+        # Get initial investment
+        strategy_details = strategy.evaluate()
+        initial_investment = abs(strategy_details['total_cost'])
+        initial_value = strategy_details['value'] if 'value' in strategy_details else strategy_details['total_cost']
+        
+        logging.info(f"Strategy initial details:")
+        logging.info(f"- Initial cost: ${initial_investment:.2f}")
+        logging.info(f"- Initial value: ${initial_value:.2f}")
+        
+        # Calculate final values
+        final_values = strategy_values[:, -1]
+        mean_final = final_values.mean()
+        median_final = float(sorted(final_values)[len(final_values) // 2])
+        min_final = final_values.min()
+        max_final = final_values.max()
+        
+        # Log summary statistics
+        logging.info(f"Final strategy value statistics:")
+        logging.info(f"- Mean: ${mean_final:.2f}")
+        logging.info(f"- Median: ${median_final:.2f}")
+        logging.info(f"- Min: ${min_final:.2f}")
+        logging.info(f"- Max: ${max_final:.2f}")
+        logging.info(f"- Range: ${max_final - min_final:.2f}")
+        
+        # Calculate returns
+        if initial_investment > 0:
+            # Check if initial_value is different from initial_investment
+            if initial_value != initial_investment and 'value' in strategy_details:
+                mean_return = (mean_final - initial_value) / initial_investment
+                median_return = (median_final - initial_value) / initial_investment
+                min_return = (min_final - initial_value) / initial_investment
+                max_return = (max_final - initial_value) / initial_investment
+            else:
+                # If there's no separate 'value' key, or it equals the investment, use simpler calculation
+                mean_return = (mean_final / initial_investment) - 1
+                median_return = (median_final / initial_investment) - 1
+                min_return = (min_final / initial_investment) - 1
+                max_return = (max_final / initial_investment) - 1
+            
+            logging.info(f"Return statistics:")
+            logging.info(f"- Mean return: {mean_return:.2%}")
+            logging.info(f"- Median return: {median_return:.2%}")
+            logging.info(f"- Min return: {min_return:.2%}")
+            logging.info(f"- Max return: {max_return:.2%}")
+        
+        # Store detailed component data for results dictionary, without additional logging
+        option_details = {}
+        for i, component in enumerate(strategy.components):
+            if component.instrument_type != InstrumentType.STOCK:
+                if component.option_spec.resolved:
+                    option_type = component.option_spec.option_type
+                    strike = component.option_spec.resolved_strike
+                    days_to_expiry = component.option_spec.resolved_days_to_expiration
+                    initial_price = component.option_spec.resolved_price
+                    
+                    option_details[f"component_{i}"] = {
+                        'type': option_type,
+                        'strike': strike,
+                        'days_to_expiry': days_to_expiry,
+                        'initial_price': initial_price
+                    }
+        
+        # Create visualization if requested
+        if self.config.get('visualization', {}).get('strategy_paths', True):
+            logging.info("\n=== GENERATING STRATEGY VISUALIZATION ===")
             visualizer = OptionsStrategyVisualizer(
                 results={
                     'ticker': ticker,
+                    'strategy': strategy_name,
                     'stock_paths': stock_paths,
                     'strategy_values': strategy_values,
-                    'strategy': {
-                        'total_cost': initial_investment,
-                        'components': strategy_details['components']
-                    },
+                    'time_points': options_sim.time_points,
                     'starting_price': starting_price,
-                    'stats': stats
+                    'initial_investment': initial_investment,
+                    'strategy': {
+                        'total_cost': initial_investment
+                    }
                 }
             )
             
+            # Determine output directory and file
+            output_dir = self.config.get('visualization', {}).get('output_dir', 'outputs')
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+                
+            strategy_name_slug = strategy_name.lower().replace(' ', '_')
+            
             # Create paths plot
-            paths_output_file = os.path.join(output_dir, f"{ticker}_options_strategy_paths.png")
+            paths_output_file = os.path.join(output_dir, f"{ticker}_{strategy_name_slug}_paths.png")
             logging.info(f"Creating options strategy paths plot at: {paths_output_file}")
             visualizer.visualize_paths(
-                values=strategy_values,
-                initial_investment=initial_investment,
-                title=f"{ticker} Options Strategy Paths",
+                title=f"{ticker} {strategy_name} Strategy Simulation",
                 save_path=paths_output_file,
                 show_plot=False
             )
             logging.info(f"Saved paths plot to: {paths_output_file}")
             
             # Create distribution plot
-            dist_path = os.path.join(output_dir, f"{ticker}_options_strategy_distribution.png")
+            distribution_output_file = os.path.join(output_dir, f"{ticker}_{strategy_name_slug}_distribution.png")
+            logging.info(f"Creating options strategy distribution plot at: {distribution_output_file}")
             visualizer.visualize_distribution(
-                title=f"{ticker} Options Strategy Distribution of Final Values",
-                save_path=dist_path,
+                title=f"{ticker} {strategy_name} Distribution of Final Values",
+                save_path=distribution_output_file,
                 show_plot=False
             )
+            logging.info(f"Saved distribution plot to: {distribution_output_file}")
             
-            # Create returns distribution plot
-            returns_path = os.path.join(output_dir, f"{ticker}_options_strategy_returns.png")
-            visualizer.visualize_returns_distribution(
-                title=f"{ticker} Options Strategy Returns Distribution",
-                save_path=returns_path,
-                show_plot=False
-            )
-            
-            # Create histogram plot
-            hist_path = os.path.join(output_dir, f"{ticker}_options_strategy_histogram.png")
-            visualizer.visualize_histogram(
-                title=f"{ticker} Options Strategy Final Values",
-                save_path=hist_path,
-                show_plot=False
-            )
-            
-            # Plot payoff curve
-            if self.config.get('visualization', {}).get('plot_payoff', False):
-                payoff_path = os.path.join(output_dir, f"{ticker}_options_strategy_payoff.png")
-                payoff_data = strategy.calculate_payoff_curve()
-                visualizer.visualize_payoff_curve(
-                    payoff_data=payoff_data,
-                    title=f"{ticker} Options Strategy Payoff at Expiration",
-                    save_path=payoff_path,
-                    show_plot=False
-                )
-                
-            # Plot strategy vs stock returns
-            if self.config.get('visualization', {}).get('plot_strategy_vs_stock', False):
-                comparison_path = os.path.join(output_dir, f"{ticker}_strategy_vs_stock.png")
-                
-                # Scale stock paths according to the first strategy component's quantity
-                stock_quantity = 100
-                for component in strategy.components:
-                    if component.instrument_type.value == "STOCK":
-                        stock_quantity = component.quantity
-                        break
-                
-                stock_values = stock_paths * stock_quantity
-                initial_stock_cost = starting_price * stock_quantity
-                
-                visualizer.visualize_strategy_vs_stock(
-                    stock_values=stock_values,
-                    initial_stock_cost=initial_stock_cost,
-                    save_path=comparison_path,
-                    show_plot=False
-                )
-            
-            # Create summary dashboard
-            summary_path = os.path.join(output_dir, f"{ticker}_options_strategy_summary.png")
+            # Create payoff curve
             payoff_data = strategy.calculate_payoff_curve()
-            visualizer.generate_summary_dashboard(
+            payoff_output_file = os.path.join(output_dir, f"{ticker}_{strategy_name_slug}_payoff.png")
+            logging.info(f"Creating options strategy payoff curve at: {payoff_output_file}")
+            visualizer.visualize_payoff_curve(
                 payoff_data=payoff_data,
-                title=f"{ticker} Options Strategy Summary",
-                save_path=summary_path,
+                title=f"{ticker} {strategy_name} Payoff at Expiration",
+                save_path=payoff_output_file,
                 show_plot=False
             )
+            logging.info(f"Saved payoff curve to: {payoff_output_file}")
             
-        # Prepare results
-        results = {
+            # Create strategy vs stock plot
+            stock_values = stock_paths * 100  # Assuming 100 shares for comparison
+            stock_cost = starting_price * 100
+            vs_stock_output_file = os.path.join(output_dir, f"{ticker}_{strategy_name_slug}_vs_stock.png")
+            logging.info(f"Creating options strategy vs stock plot at: {vs_stock_output_file}")
+            visualizer.visualize_strategy_vs_stock(
+                strategy_values=strategy_values,
+                initial_strategy_cost=initial_investment,
+                stock_values=stock_values,
+                initial_stock_cost=stock_cost,
+                title=f"{ticker} {strategy_name} vs Stock Returns",
+                save_path=vs_stock_output_file,
+                show_plot=False
+            )
+            logging.info(f"Saved strategy vs stock plot to: {vs_stock_output_file}")
+        
+        # Store results
+        self.results = {
             'ticker': ticker,
-            'stock_paths': stock_paths.tolist(),  # Convert to list for JSON serialization
-            'strategy_values': strategy_values.tolist(),
-            'component_values': {k: v.tolist() for k, v in component_values.items()},
-            'time_points': stock_paths.shape[1],
-            'strategy': {
-                'name': strategy.name,
-                'total_cost': initial_investment,
-                'components': strategy_details['components']
-            },
+            'strategy': strategy_name,
+            'stock_paths': stock_paths,
+            'strategy_values': strategy_values,
+            'component_prices': component_prices,
+            'paths': paths,
+            'horizon': options_sim.time_points[-1],
             'starting_price': starting_price,
-            'stats': stats
+            'initial_investment': initial_investment,
+            'option_details': option_details,
+            'simulation_type': 'options_strategy'
         }
         
-        return results
+        return self.results
     
     def get_results(self) -> Dict[str, Any]:
         """
