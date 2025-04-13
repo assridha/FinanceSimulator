@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from financesimulator.data.fetcher import MarketDataFetcher
 from financesimulator.options.strategy import OptionsStrategy, Action
 from financesimulator.simulation.options_sim import OptionsSimulation
+from financesimulator.visualization.plots import OptionsStrategyVisualizer
 
 
 def run_options_strategy_simulation():
@@ -111,8 +112,19 @@ def run_options_strategy_simulation():
     # Visualize results
     print("\n==== Creating Visualizations ====")
     
+    # Create visualizer
+    visualizer = OptionsStrategyVisualizer({
+        'ticker': ticker,
+        'stock_paths': stock_paths,
+        'strategy_values': strategy_values,
+        'strategy': {
+            'total_cost': initial_investment
+        },
+        'stats': statistics
+    })
+    
     # Plot strategy paths
-    options_sim.visualize_paths(
+    visualizer.visualize_paths(
         values=strategy_values,
         initial_investment=initial_investment,
         title=f"{ticker} Bull Call Spread - Strategy Paths",
@@ -120,7 +132,7 @@ def run_options_strategy_simulation():
     )
     
     # Plot distribution of final values
-    options_sim.visualize_distribution(
+    visualizer.visualize_distribution(
         values=strategy_values,
         initial_investment=initial_investment,
         title=f"{ticker} Bull Call Spread - Distribution of Final Values",
@@ -128,8 +140,10 @@ def run_options_strategy_simulation():
     )
     
     # Plot payoff curve
-    options_sim.visualize_payoff_curve(
-        strategy=strategy,
+    payoff_data = strategy.calculate_payoff_curve()
+    visualizer.visualize_payoff_curve(
+        payoff_data=payoff_data,
+        title=f"{ticker} Bull Call Spread - Payoff at Expiration",
         save_path=os.path.join(output_dir, f"{ticker}_bull_call_spread_payoff.png")
     )
     
@@ -137,7 +151,7 @@ def run_options_strategy_simulation():
     stock_values = stock_paths * 100  # Assuming 100 shares equivalent for comparison
     stock_cost = evaluation['current_price'] * 100
     
-    options_sim.visualize_strategy_vs_stock(
+    visualizer.visualize_strategy_vs_stock(
         strategy_values=strategy_values,
         initial_strategy_cost=initial_investment,
         stock_values=stock_values,
