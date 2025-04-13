@@ -414,21 +414,37 @@ class OptionsSimulation:
         }
         
         # Evaluate the strategy to ensure all components are resolved
+        # This sets up all required values like option_price, resolved_strike, etc.
         step_start = time.time()
         strategy_details = strategy.evaluate(is_simulation=True)
         step_times['evaluate_strategy'] = time.time() - step_start
         logging.info(f"Strategy evaluation took {step_times['evaluate_strategy']:.2f} seconds")
+        
+        # Cache to prevent redundant resolution of identical expiration dates
+        expiration_cache = {}
         
         # Find the longest expiration among option components
         step_start = time.time()
         max_expiration = 0
         for component in strategy.components:
             if component.instrument_type != InstrumentType.STOCK:
-                days_to_expiry = component.option_spec.resolve(
-                    strategy.ticker,
-                    strategy.current_price,
-                    self.data_fetcher
-                )['days_to_expiration']
+                # Use cached results if this exact expiration has been resolved before
+                option_spec = component.option_spec
+                cache_key = str(option_spec.expiration_spec)
+                
+                if cache_key in expiration_cache:
+                    days_to_expiry = expiration_cache[cache_key]
+                    logging.info(f"Using cached expiration: {cache_key} -> {days_to_expiry} days")
+                else:
+                    # Only resolve once, not on each simulation step
+                    option_details = option_spec.resolve(
+                        strategy.ticker,
+                        strategy.current_price,
+                        self.data_fetcher
+                    )
+                    days_to_expiry = option_details['days_to_expiration']
+                    expiration_cache[cache_key] = days_to_expiry
+                
                 max_expiration = max(max_expiration, days_to_expiry)
         
         step_times['find_expiration'] = time.time() - step_start
@@ -454,6 +470,9 @@ class OptionsSimulation:
         initial_values = {}
         total_initial_value = 0
         
+        # Keep track of resolved option details to avoid redundant calculation
+        resolved_options = {}
+        
         component_calc_start = time.time()
         for i, component in enumerate(strategy.components):
             component_start = time.time()
@@ -474,11 +493,10 @@ class OptionsSimulation:
                 # For option components, simulate option prices
                 option_type = 'call' if component.instrument_type == InstrumentType.CALL else 'put'
                 strike = component.option_spec.resolved_strike
-                days_to_expiry = component.option_spec.resolve(
-                    strategy.ticker,
-                    strategy.current_price,
-                    self.data_fetcher
-                )['days_to_expiration']
+                
+                # Use cached expiration resolution
+                cache_key = str(component.option_spec.expiration_spec)
+                days_to_expiry = expiration_cache[cache_key]
                 
                 # Calculate option prices along each path
                 component_prices[f"component_{i}"] = np.zeros_like(self.stock_paths)
