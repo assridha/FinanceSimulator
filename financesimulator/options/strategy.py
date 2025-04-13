@@ -4,6 +4,8 @@ from typing import List, Dict, Union, Optional, Tuple, Any
 from enum import Enum
 import numpy as np
 from datetime import datetime, timedelta
+import time
+import logging
 
 from ..data.fetcher import MarketDataFetcher
 from .black_scholes import BlackScholes
@@ -61,7 +63,8 @@ class OptionSpecification:
         self.option_price: Optional[float] = None
         self.greeks: Dict[str, float] = {}
     
-    def resolve(self, ticker: str, current_price: float, data_fetcher: MarketDataFetcher) -> Dict[str, Any]:
+    def resolve(self, ticker: str, current_price: float, data_fetcher: MarketDataFetcher, 
+                is_simulation: bool = False) -> Dict[str, Any]:
         """
         Resolve option specification to concrete values using market data.
         
@@ -69,11 +72,16 @@ class OptionSpecification:
             ticker: Stock ticker symbol
             current_price: Current stock price
             data_fetcher: Market data fetcher instance
+            is_simulation: If True, skip trying to get market data and just use Black-Scholes
             
         Returns:
             Dictionary containing the resolved option details
         """
+        overall_start = time.time()
+        logging.info(f"Starting option spec resolution for {ticker} {self.option_type}")
+        
         # Resolve expiration
+        expiration_start = time.time()
         if isinstance(self.expiration_spec, int):
             # Days to expiration
             self.resolved_expiration = datetime.now() + timedelta(days=self.expiration_spec)
@@ -105,8 +113,12 @@ class OptionSpecification:
         days_to_expiration = (self.resolved_expiration - datetime.now()).days
         if days_to_expiration <= 0:
             raise ValueError("Option expiration must be in the future")
+            
+        expiration_time = time.time() - expiration_start
+        logging.info(f"Expiration resolution took {expiration_time:.4f} seconds")
         
         # Resolve strike price
+        strike_start = time.time()
         if isinstance(self.strike_spec, (int, float)):
             # Absolute strike price
             self.resolved_strike = float(self.strike_spec)
@@ -128,10 +140,11 @@ class OptionSpecification:
                     self.resolved_strike = current_price * (1 - itm_pct)
                 else:  # put
                     self.resolved_strike = current_price * (1 + itm_pct)
-            elif self.strike_spec.startswith('delta:'):
-                # Delta-based strike selection
+            elif self.strike_spec.startswith('delta:') and not is_simulation:
+                # Delta-based strike selection - skip if in simulation mode
                 target_delta = float(self.strike_spec.split(':')[1])
                 # Use option chain to find option with closest delta
+                delta_start = time.time()
                 option = data_fetcher.find_option_by_criteria(
                     ticker=ticker,
                     option_type=self.option_type,
@@ -139,7 +152,26 @@ class OptionSpecification:
                     value=target_delta,
                     expiration_date=self.resolved_expiration
                 )
+                logging.info(f"Delta-based option search took {time.time() - delta_start:.4f} seconds")
                 self.resolved_strike = option['strike']
+            elif self.strike_spec.startswith('delta:') and is_simulation:
+                # For simulation, just use a rough estimate for delta-based strikes
+                target_delta = float(self.strike_spec.split(':')[1])
+                # Rough estimate: ATM has delta of 0.5, OTM decreases
+                if self.option_type == 'call':
+                    # For call options: delta from 0 (deep OTM) to 1 (deep ITM)
+                    # Rough approximation: 10% price move for every 0.2 delta
+                    delta_diff = 0.5 - target_delta  # How far from ATM
+                    price_move_pct = delta_diff * 0.5  # 50% move for delta diff of 1.0
+                    self.resolved_strike = current_price * (1 + price_move_pct)
+                else:
+                    # For put options: delta from 0 (deep OTM) to -1 (deep ITM)
+                    # Target delta is usually negative for puts, but might be provided as positive
+                    target_delta_abs = abs(target_delta)
+                    delta_diff = 0.5 - target_delta_abs
+                    price_move_pct = delta_diff * 0.5
+                    self.resolved_strike = current_price * (1 - price_move_pct)
+                logging.info(f"Used delta approximation for simulation: delta={target_delta}, strike={self.resolved_strike}")
             else:
                 # Try to parse as float
                 try:
@@ -148,30 +180,27 @@ class OptionSpecification:
                     raise ValueError(f"Could not parse strike specification: {self.strike_spec}")
         else:
             raise ValueError(f"Invalid strike specification: {self.strike_spec}")
+            
+        strike_time = time.time() - strike_start
+        logging.info(f"Strike resolution took {strike_time:.4f} seconds")
         
         # Calculate option price
-        # First try to get market price from option chain
-        try:
-            option = data_fetcher.find_option_by_criteria(
-                ticker=ticker,
-                option_type=self.option_type,
-                criteria='strike',
-                value=self.resolved_strike,
-                expiration_date=self.resolved_expiration
-            )
-            self.option_price = option['lastPrice']
+        pricing_start = time.time()
+        
+        # For simulation or when we're explicitly told to skip market data
+        if is_simulation:
+            # Skip trying to get market data, just use Black-Scholes
+            rfr_start = time.time()
+            risk_free_rate = data_fetcher.get_risk_free_rate()  # This is now optimized with caching
+            logging.info(f"Risk-free rate fetch took {time.time() - rfr_start:.4f} seconds")
             
-            # Get greeks if available
-            for greek in ['delta', 'gamma', 'theta', 'vega', 'rho']:
-                if greek in option:
-                    self.greeks[greek] = option[greek]
-                    
-        except (ValueError, KeyError):
-            # Fall back to Black-Scholes model
-            risk_free_rate = data_fetcher.get_risk_free_rate()
+            vol_start = time.time()
             volatility = data_fetcher.calculate_historical_volatility(ticker, lookback_period='1y')
+            logging.info(f"Volatility calculation took {time.time() - vol_start:.4f} seconds")
+            
             years_to_expiration = days_to_expiration / 365
             
+            bs_start = time.time()
             if self.option_type == 'call':
                 self.option_price = BlackScholes.call_price(
                     S=current_price,
@@ -198,6 +227,76 @@ class OptionSpecification:
                 sigma=volatility,
                 T=years_to_expiration
             )
+            logging.info(f"Black-Scholes calculation took {time.time() - bs_start:.4f} seconds")
+        else:
+            # First try to get market price from option chain
+            try:
+                logging.info(f"Searching for option with strike {self.resolved_strike} expiring in {days_to_expiration} days")
+                option_search_start = time.time()
+                option = data_fetcher.find_option_by_criteria(
+                    ticker=ticker,
+                    option_type=self.option_type,
+                    criteria='strike',
+                    value=self.resolved_strike,
+                    expiration_date=self.resolved_expiration
+                )
+                option_search_time = time.time() - option_search_start
+                logging.info(f"Option search took {option_search_time:.4f} seconds")
+                
+                self.option_price = option['lastPrice']
+                
+                # Get greeks if available
+                for greek in ['delta', 'gamma', 'theta', 'vega', 'rho']:
+                    if greek in option:
+                        self.greeks[greek] = option[greek]
+                        
+            except (ValueError, KeyError) as e:
+                logging.info(f"Market data not available ({str(e)}), using Black-Scholes model instead")
+                # Fall back to Black-Scholes model
+                rfr_start = time.time()
+                risk_free_rate = data_fetcher.get_risk_free_rate()
+                logging.info(f"Risk-free rate fetch took {time.time() - rfr_start:.4f} seconds")
+                
+                vol_start = time.time()
+                volatility = data_fetcher.calculate_historical_volatility(ticker, lookback_period='1y')
+                logging.info(f"Volatility calculation took {time.time() - vol_start:.4f} seconds")
+                
+                years_to_expiration = days_to_expiration / 365
+                
+                bs_start = time.time()
+                if self.option_type == 'call':
+                    self.option_price = BlackScholes.call_price(
+                        S=current_price,
+                        K=self.resolved_strike,
+                        r=risk_free_rate,
+                        sigma=volatility,
+                        T=years_to_expiration
+                    )
+                else:  # put
+                    self.option_price = BlackScholes.put_price(
+                        S=current_price,
+                        K=self.resolved_strike,
+                        r=risk_free_rate,
+                        sigma=volatility,
+                        T=years_to_expiration
+                    )
+                    
+                # Calculate greeks
+                self.greeks = BlackScholes.calculate_greeks(
+                    option_type=self.option_type,
+                    S=current_price,
+                    K=self.resolved_strike,
+                    r=risk_free_rate,
+                    sigma=volatility,
+                    T=years_to_expiration
+                )
+                logging.info(f"Black-Scholes calculation took {time.time() - bs_start:.4f} seconds")
+        
+        pricing_time = time.time() - pricing_start
+        logging.info(f"Option pricing took {pricing_time:.4f} seconds")
+        
+        total_time = time.time() - overall_start
+        logging.info(f"Total option spec resolution took {total_time:.4f} seconds")
         
         # Return resolved option details
         return {
@@ -242,7 +341,7 @@ class StrategyComponent:
         self.initial_cost: Optional[float] = None
         self.initial_price: Optional[float] = None
         
-    def evaluate(self, ticker: str, current_price: float, data_fetcher: MarketDataFetcher) -> Dict[str, Any]:
+    def evaluate(self, ticker: str, current_price: float, data_fetcher: MarketDataFetcher, is_simulation: bool = False) -> Dict[str, Any]:
         """
         Evaluate the component based on current market conditions.
         
@@ -250,6 +349,7 @@ class StrategyComponent:
             ticker: Stock ticker symbol
             current_price: Current stock price
             data_fetcher: Market data fetcher instance
+            is_simulation: If True, use simulation mode (skip market data)
             
         Returns:
             Dictionary containing evaluation results
@@ -276,8 +376,13 @@ class StrategyComponent:
             if self.option_spec and self.option_spec.option_type != option_type:
                 self.option_spec.option_type = option_type
                 
-            # Resolve option specification
-            option_details = self.option_spec.resolve(ticker, current_price, data_fetcher)
+            # Resolve option specification - pass is_simulation flag
+            option_details = self.option_spec.resolve(
+                ticker, 
+                current_price, 
+                data_fetcher,
+                is_simulation=is_simulation  # Pass the simulation flag
+            )
             self.initial_price = option_details['price']
             
             # Calculate cost (negative for sell, positive for buy)
@@ -388,10 +493,13 @@ class OptionsStrategy:
         
         self.add_component(component)
     
-    def evaluate(self) -> Dict[str, Any]:
+    def evaluate(self, is_simulation: bool = False) -> Dict[str, Any]:
         """
         Evaluate the strategy based on current market conditions.
         
+        Args:
+            is_simulation: If True, use simulation mode (skip market data)
+            
         Returns:
             Dictionary containing evaluation results
         """
@@ -406,7 +514,12 @@ class OptionsStrategy:
         total_cost = 0
         
         for component in self.components:
-            result = component.evaluate(self.ticker, self.current_price, self.data_fetcher)
+            result = component.evaluate(
+                self.ticker, 
+                self.current_price, 
+                self.data_fetcher,
+                is_simulation=is_simulation
+            )
             results.append(result)
             total_cost += result['cost']
             

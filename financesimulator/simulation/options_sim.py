@@ -415,7 +415,7 @@ class OptionsSimulation:
         
         # Evaluate the strategy to ensure all components are resolved
         step_start = time.time()
-        strategy_details = strategy.evaluate()
+        strategy_details = strategy.evaluate(is_simulation=True)
         step_times['evaluate_strategy'] = time.time() - step_start
         logging.info(f"Strategy evaluation took {step_times['evaluate_strategy']:.2f} seconds")
         
