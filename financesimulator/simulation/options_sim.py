@@ -128,7 +128,7 @@ class OptionsPricer:
             strike: Option strike price
             days_to_expiration: Days until option expiration
             price_path: Array of stock prices along the path
-            volatility: Implied volatility
+            volatility: Implied volatility specific to this option contract
             time_points: Array of time points (days from start)
             
         Returns:
@@ -162,7 +162,7 @@ class OptionsPricer:
                         S=price_path[active_mask],
                         K=strike,
                         r=self.risk_free_rate,
-                        sigma=volatility,
+                        sigma=volatility,  # Using option-specific IV passed from caller
                         T=time_to_expiry[active_mask]
                     )
                 else:  # put
@@ -170,7 +170,7 @@ class OptionsPricer:
                         S=price_path[active_mask],
                         K=strike,
                         r=self.risk_free_rate,
-                        sigma=volatility,
+                        sigma=volatility,  # Using option-specific IV passed from caller
                         T=time_to_expiry[active_mask]
                     )
                 
@@ -196,7 +196,7 @@ class OptionsPricer:
                         S=S,
                         K=strike,
                         T=T,
-                        sigma=volatility
+                        sigma=volatility  # Using option-specific IV passed from caller
                     )
                 pricing_operations += 1
                 
@@ -483,16 +483,35 @@ class OptionsSimulation:
                 # Calculate option prices along each path
                 component_prices[f"component_{i}"] = np.zeros_like(self.stock_paths)
                 
-                # Get initial option price
+                # Get initial option price and implied volatility
                 option_price_start = time.time()
-                initial_option_price = self.options_pricer.price_option(
-                    option_type=option_type,
-                    S=self.starting_price,
-                    K=strike,
-                    T=days_to_expiry / 365,  # Convert to years
-                    sigma=self.volatility
-                )
-                logging.info(f"Initial option pricing took {time.time() - option_price_start:.2f} seconds")
+                
+                # Use the component's option price from the strategy evaluation
+                initial_option_price = component.option_spec.option_price
+                
+                # Calculate implied volatility from the option's market price
+                # This is the key change: using each option's IV instead of the stock volatility
+                years_to_expiry = days_to_expiry / 365
+                option_iv = self.volatility  # Default to stock volatility
+                
+                # Calculate IV only if we have a valid option price
+                if initial_option_price is not None and initial_option_price > 0:
+                    try:
+                        option_iv = BlackScholes.implied_volatility(
+                            option_type=option_type,
+                            option_price=initial_option_price,
+                            S=self.starting_price,
+                            K=strike,
+                            r=self.risk_free_rate,
+                            T=years_to_expiry
+                        )
+                        logging.info(f"Using option-specific IV: {option_iv:.4f} for {option_type} with strike {strike}")
+                    except ValueError as e:
+                        logging.warning(f"Could not calculate IV, using stock volatility instead: {str(e)}")
+                else:
+                    logging.info(f"No valid option price available, using stock volatility: {self.volatility:.4f}")
+                
+                logging.info(f"Initial option pricing and IV calculation took {time.time() - option_price_start:.2f} seconds")
                 
                 # For option components, calculate option price and apply sign based on action
                 sign = 1 if component.action == Action.BUY else -1
@@ -535,7 +554,7 @@ class OptionsSimulation:
                                         S=batch_paths[:, t],
                                         K=strike,
                                         r=self.risk_free_rate,
-                                        sigma=self.volatility,
+                                        sigma=option_iv,  # Use option-specific IV instead of stock volatility
                                         T=np.full(batch_end - batch_start, time_to_expiry)
                                     )
                                 else:  # put
@@ -543,7 +562,7 @@ class OptionsSimulation:
                                         S=batch_paths[:, t],
                                         K=strike,
                                         r=self.risk_free_rate,
-                                        sigma=self.volatility,
+                                        sigma=option_iv,  # Use option-specific IV instead of stock volatility
                                         T=np.full(batch_end - batch_start, time_to_expiry)
                                     )
                         
@@ -565,7 +584,7 @@ class OptionsSimulation:
                             strike=strike,
                             days_to_expiration=days_to_expiry,
                             price_path=self.stock_paths[path_idx, :],
-                            volatility=self.volatility,
+                            volatility=option_iv,  # Use option-specific IV instead of stock volatility
                             time_points=self.time_points
                         ) * component.quantity
                         
