@@ -98,10 +98,10 @@ def run_options_strategy_simulation():
     )
     
     print("\n==== Simulation Results ====")
-    print(f"Mean Final Value: ${statistics['mean_final_value']:.2f}")
+    print(f"Mean Final Value: ${statistics['mean_value']:.2f}")
     print(f"Mean Return: {statistics['mean_return']:.2%}")
-    print(f"Probability of Profit: {statistics['prob_profit']:.2%}")
-    print(f"95% Value at Risk: ${statistics['var_95']:.2f}")
+    print(f"Probability of Profit: {statistics['win_rate']:.2%}")
+    print(f"Value at Risk (10%): ${statistics['percentile_10']:.2f}")
     
     # Create output directory if it doesn't exist
     output_dir = os.path.join(os.path.dirname(__file__), '..', 'outputs')
